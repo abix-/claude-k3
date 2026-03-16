@@ -1,0 +1,61 @@
+# Template used by dispatcher.sh to create Jobs.
+# ISSUE_NUMBER and AGENT_SLOT are replaced at creation time.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "claude-issue-ISSUE_NUMBER"
+  namespace: claude-agents
+  labels:
+    app: claude-agent
+    issue-number: "ISSUE_NUMBER"
+    agent-slot: "AGENT_SLOT"
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: claude-agent
+        issue-number: "ISSUE_NUMBER"
+        agent-slot: "AGENT_SLOT"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: claude-agent
+          image: claude-agent:latest
+          imagePullPolicy: Never
+          env:
+            - name: ISSUE_NUMBER
+              value: "ISSUE_NUMBER"
+            - name: AGENT_SLOT
+              value: "AGENT_SLOT"
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: claude-secrets
+                  key: CLAUDE_CODE_OAUTH_TOKEN
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: claude-secrets
+                  key: GITHUB_TOKEN
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "4Gi"
+              cpu: "4"
+          volumeMounts:
+            - name: cargo-target
+              mountPath: /cargo-target
+            - name: workspaces
+              mountPath: /workspaces
+      volumes:
+        - name: cargo-target
+          persistentVolumeClaim:
+            claimName: cargo-target
+        - name: workspaces
+          persistentVolumeClaim:
+            claimName: workspaces

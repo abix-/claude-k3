@@ -1,0 +1,4 @@
+# never commit real secrets
+secret-values.yaml
+*.key
+*.pem
