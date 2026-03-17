@@ -39,28 +39,33 @@ type ghTickMsg time.Time
 type k8sData *Data
 type dispatchDone string
 
+type ErrorLinesFunc func() []string
+
 type Model struct {
 	data         *Data
 	gatherFn     GatherFunc
 	k8sGatherFn  K8sGatherFunc
 	dispatchFn   DispatchFunc
 	setMaxSlots  SetMaxSlotsFunc
+	errorLines   ErrorLinesFunc
 	statusMsg    string
 	maxSlots     int
 	paused       bool
 	showDispatch bool
 	showLive     bool
+	showErrors   bool
 	width        int
 	height       int
 	quitting     bool
 }
 
-func NewModel(gatherFn GatherFunc, k8sGatherFn K8sGatherFunc, dispatchFn DispatchFunc, maxSlots int, setMaxSlots SetMaxSlotsFunc) Model {
+func NewModel(gatherFn GatherFunc, k8sGatherFn K8sGatherFunc, dispatchFn DispatchFunc, maxSlots int, setMaxSlots SetMaxSlotsFunc, errorLines ErrorLinesFunc) Model {
 	return Model{
 		gatherFn:     gatherFn,
 		k8sGatherFn:  k8sGatherFn,
 		dispatchFn:   dispatchFn,
 		setMaxSlots:  setMaxSlots,
+		errorLines:   errorLines,
 		maxSlots:     maxSlots,
 		showDispatch: true,
 		showLive:     true,
@@ -112,6 +117,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "d":
 			m.showDispatch = !m.showDispatch
+		case "e":
+			m.showErrors = !m.showErrors
 		case "l":
 			m.showLive = !m.showLive
 		case "r":
@@ -367,11 +374,27 @@ func (m Model) renderView(maxVisiblePods int) string {
 	sections = append(sections, titleFg.Render(" Pull Requests"))
 	sections = append(sections, strings.Join(prLines, "\n"))
 
+	// -- errors (toggle with e) --
+	if m.showErrors && m.errorLines != nil {
+		errLines := m.errorLines()
+		var errSection []string
+		if len(errLines) == 0 {
+			errSection = append(errSection, dim.Render("  (no errors)"))
+		} else {
+			for _, line := range errLines {
+				errSection = append(errSection, red.Render("  "+truncate(line, w-4)))
+			}
+		}
+		sections = append(sections, sep)
+		sections = append(sections, titleFg.Render(fmt.Sprintf(" Errors (%d)", len(errLines))))
+		sections = append(sections, strings.Join(errSection, "\n"))
+	}
+
 	// -- status + help --
 	if m.statusMsg != "" {
 		sections = append(sections, yellow.Render(" "+m.statusMsg))
 	}
-	sections = append(sections, dim.Render(" q: quit  n: dispatch  p: pause  d: dispatcher  l: live  r: refresh  +/-: agents  1-6: copy /review"))
+	sections = append(sections, dim.Render(" q: quit  n: dispatch  p: pause  d: dispatcher  e: errors  l: live  r: refresh  +/-: agents  1-6: copy /review"))
 
 	return strings.Join(sections, "\n")
 }

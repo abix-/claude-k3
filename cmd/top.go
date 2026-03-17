@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -14,7 +15,46 @@ import (
 	"github.com/abix-/claude-k3/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+	"k8s.io/klog/v2"
 )
+
+// ringBuffer captures the last N lines written to it.
+type ringBuffer struct {
+	mu    sync.Mutex
+	lines []string
+	max   int
+	buf   bytes.Buffer
+}
+
+func (r *ringBuffer) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.buf.Write(p)
+	for {
+		line, err := r.buf.ReadString('\n')
+		if err != nil {
+			// incomplete line, put it back
+			r.buf.WriteString(line)
+			break
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line != "" {
+			r.lines = append(r.lines, line)
+			if len(r.lines) > r.max {
+				r.lines = r.lines[1:]
+			}
+		}
+	}
+	return len(p), nil
+}
+
+func (r *ringBuffer) Lines() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.lines))
+	copy(out, r.lines)
+	return out
+}
 
 var once bool
 
@@ -270,6 +310,11 @@ func runTop(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// capture klog output to ring buffer instead of stderr
+	logBuf := &ringBuffer{max: 50}
+	klog.SetOutput(logBuf)
+	klog.LogToStderr(false)
+
 	// TUI mode
 	gatherFn := func() (*tui.Data, error) {
 		d, err := gather()
@@ -364,7 +409,7 @@ func runTop(cmd *cobra.Command, args []string) error {
 		os.Setenv("MAX_SLOTS", fmt.Sprintf("%d", n))
 	}
 
-	m := tui.NewModel(gatherFn, k8sGatherFn, dispatchFn, maxSlots, setMaxSlots)
+	m := tui.NewModel(gatherFn, k8sGatherFn, dispatchFn, maxSlots, setMaxSlots, logBuf.Lines)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
