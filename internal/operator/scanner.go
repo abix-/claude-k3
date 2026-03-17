@@ -105,6 +105,7 @@ func scan(ctx context.Context, c client.Client, namespace string) {
 				RepoURL:     issue.Repo.CloneURL(),
 				Slot:        slot,
 				Agent:       agent,
+				OriginState: issue.State,
 			},
 			Status: ClaudeTaskStatus{
 				Phase: TaskPhasePending,

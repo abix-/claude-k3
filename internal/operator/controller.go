@@ -168,13 +168,24 @@ func (r *Reconciler) handleCompleted(ctx context.Context, task *ClaudeTask) (ctr
 	}
 	github.PostComment(ctx, repo, task.Spec.IssueNumber, body)
 
-	// sync labels -- always needs-human on success, ready on failure
+	// sync labels based on origin state
 	if succeeded {
-		task.Status.NextAction = "needs-human"
-		github.UnclaimIssue(ctx, repo, task.Spec.IssueNumber, task.Status.Agent, "needs-human")
+		// ready -> needs-review (second agent reviews next)
+		// needs-review -> needs-human (two rounds done, human decides)
+		nextAction := "needs-review"
+		if task.Spec.OriginState == "needs-review" {
+			nextAction = "needs-human"
+		}
+		task.Status.NextAction = nextAction
+		github.UnclaimIssue(ctx, repo, task.Spec.IssueNumber, task.Status.Agent, nextAction)
 	} else {
-		task.Status.NextAction = "ready"
-		github.UnclaimIssue(ctx, repo, task.Spec.IssueNumber, task.Status.Agent, "ready")
+		// failure -> back to origin state
+		returnTo := task.Spec.OriginState
+		if returnTo == "" {
+			returnTo = "ready"
+		}
+		task.Status.NextAction = returnTo
+		github.UnclaimIssue(ctx, repo, task.Spec.IssueNumber, task.Status.Agent, returnTo)
 	}
 
 	task.Status.Reported = true
