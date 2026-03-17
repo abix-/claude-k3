@@ -229,32 +229,12 @@ func countPhases(pods []types.AgentPod) (running, completed, failed int) {
 
 func splitLines(s string) []string {
 	var lines []string
-	for _, l := range split(s, '\n') {
+	for _, l := range strings.Split(s, "\n") {
 		if l != "" {
 			lines = append(lines, l)
 		}
 	}
 	return lines
-}
-
-func split(s string, sep byte) []string {
-	var result []string
-	for len(s) > 0 {
-		idx := -1
-		for i := 0; i < len(s); i++ {
-			if s[i] == sep {
-				idx = i
-				break
-			}
-		}
-		if idx == -1 {
-			result = append(result, s)
-			break
-		}
-		result = append(result, s[:idx])
-		s = s[idx+1:]
-	}
-	return result
 }
 
 func runTop(cmd *cobra.Command, args []string) error {
