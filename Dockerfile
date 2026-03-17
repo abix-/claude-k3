@@ -24,6 +24,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     apt-get update && apt-get install -y gh && \
     rm -rf /var/lib/apt/lists/*
 
+# kubectl (for dispatcher pod)
+RUN curl -fsSL "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    -o /usr/local/bin/kubectl && \
+    chmod +x /usr/local/bin/kubectl
+
 # rust toolchain (as non-root user later)
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo
@@ -40,10 +45,18 @@ RUN chmod +x /usr/local/bin/cargo-lock.py
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# claude config -- baked into image for v1
-# skills and CLAUDE.md are copied at build time
-COPY claude-config/ /root/.claude/
+# claude config is copied below for non-root user
 
+# non-root user (claude refuses --dangerously-skip-permissions as root)
+RUN apt-get update && apt-get install -y --no-install-recommends sudo && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd -m -s /bin/bash claude && \
+    echo "claude ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/claude && \
+    mkdir -p /workspaces /cargo-target /cargo-home && \
+    chown -R claude:claude /workspaces /cargo-target /cargo-home
+COPY --chown=claude:claude claude-config/ /home/claude/.claude/
+
+USER claude
 WORKDIR /workspaces
 
 ENTRYPOINT ["/entrypoint.sh"]

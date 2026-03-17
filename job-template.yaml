@@ -1,24 +1,24 @@
 # Template used by dispatcher.sh to create Jobs.
-# ISSUE_NUMBER and AGENT_SLOT are replaced at creation time.
+# __ISSUE_NUMBER__ and __AGENT_SLOT__ are replaced at creation time.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: "claude-issue-ISSUE_NUMBER"
+  name: "claude-issue-__ISSUE_NUMBER__"
   namespace: claude-agents
   labels:
     app: claude-agent
-    issue-number: "ISSUE_NUMBER"
-    agent-slot: "AGENT_SLOT"
+    issue-number: "__ISSUE_NUMBER__"
+    agent-slot: "__AGENT_SLOT__"
 spec:
   backoffLimit: 0
   activeDeadlineSeconds: 3600
-  ttlSecondsAfterFinished: 3600
+  ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
         app: claude-agent
-        issue-number: "ISSUE_NUMBER"
-        agent-slot: "AGENT_SLOT"
+        issue-number: "__ISSUE_NUMBER__"
+        agent-slot: "__AGENT_SLOT__"
     spec:
       restartPolicy: Never
       containers:
@@ -27,9 +27,9 @@ spec:
           imagePullPolicy: Never
           env:
             - name: ISSUE_NUMBER
-              value: "ISSUE_NUMBER"
+              value: "__ISSUE_NUMBER__"
             - name: AGENT_SLOT
-              value: "AGENT_SLOT"
+              value: "__AGENT_SLOT__"
             - name: CLAUDE_CODE_OAUTH_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -40,22 +40,48 @@ spec:
                 secretKeyRef:
                   name: claude-secrets
                   key: GITHUB_TOKEN
-          resources:
-            requests:
-              memory: "256Mi"
-              cpu: "100m"
-            limits:
-              memory: "4Gi"
-              cpu: "4"
           volumeMounts:
             - name: cargo-target
               mountPath: /cargo-target
+            - name: cargo-home
+              mountPath: /cargo-home
             - name: workspaces
               mountPath: /workspaces
+            - name: claude-skills
+              mountPath: /home/claude/.claude/skills
+              readOnly: true
+            - name: claude-commands
+              mountPath: /home/claude/.claude/commands
+              readOnly: true
+            - name: claude-docs
+              mountPath: /home/claude/.claude/docs
+              readOnly: true
+            - name: claude-md
+              mountPath: /home/claude/.claude/CLAUDE.md
+              readOnly: true
       volumes:
         - name: cargo-target
           persistentVolumeClaim:
             claimName: cargo-target
+        - name: cargo-home
+          persistentVolumeClaim:
+            claimName: cargo-home
         - name: workspaces
           persistentVolumeClaim:
             claimName: workspaces
+        - name: claude-skills
+          hostPath:
+            path: /mnt/c/Users/Abix/.claude/skills
+            type: Directory
+        - name: claude-commands
+          hostPath:
+            path: /mnt/c/Users/Abix/.claude/commands
+            type: Directory
+        - name: claude-docs
+          hostPath:
+            path: /mnt/c/Users/Abix/.claude/docs
+            type: Directory
+        - name: claude-md
+          hostPath:
+            path: /mnt/c/Users/Abix/.claude/CLAUDE.md
+            type: File

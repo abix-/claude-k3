@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-NERDCTL="sudo nerdctl --address /run/k3s/containerd/containerd.sock"
+NERDCTL="sudo nerdctl --address /run/k3s/containerd/containerd.sock --namespace k8s.io"
 KUBECTL="sudo k3s kubectl"
 
 echo "=== building claude-agent image ==="
@@ -15,6 +15,7 @@ ${KUBECTL} apply -f "${SCRIPT_DIR}/namespace.yaml"
 
 echo "=== applying PVCs ==="
 ${KUBECTL} apply -f "${SCRIPT_DIR}/pvc-cargo-target.yaml"
+${KUBECTL} apply -f "${SCRIPT_DIR}/pvc-cargo-home.yaml"
 ${KUBECTL} apply -f "${SCRIPT_DIR}/pvc-workspaces.yaml"
 
 echo "=== creating configmap from scripts ==="

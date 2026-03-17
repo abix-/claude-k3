@@ -35,18 +35,6 @@ spec:
               configMap:
                 name: dispatcher-scripts
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: dispatcher-scripts
-  namespace: claude-agents
-data:
-  dispatcher.sh: |
-    # loaded from k8s/dispatcher.sh at deploy time
-    # use: kubectl create configmap dispatcher-scripts -n claude-agents --from-file=dispatcher.sh --from-file=job-template.yaml
-  job-template.yaml: |
-    # loaded from k8s/job-template.yaml at deploy time
----
 # RBAC: dispatcher needs permission to manage jobs in the namespace
 apiVersion: v1
 kind: ServiceAccount
