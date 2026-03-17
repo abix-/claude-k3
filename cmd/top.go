@@ -8,7 +8,9 @@ import (
 
 	"github.com/abix-/k3s-claude/internal/github"
 	"github.com/abix-/k3s-claude/internal/k8s"
+	"github.com/abix-/k3s-claude/internal/tui"
 	"github.com/abix-/k3s-claude/internal/types"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )
 
@@ -231,11 +233,36 @@ func split(s string, sep byte) []string {
 }
 
 func runTop(cmd *cobra.Command, args []string) error {
-	d, err := gather()
-	if err != nil {
-		return err
+	if once {
+		d, err := gather()
+		if err != nil {
+			return err
+		}
+		printDashboard(d)
+		return nil
 	}
-	printDashboard(d)
-	// TODO: TUI mode when --once is not set
-	return nil
+
+	// TUI mode
+	gatherFn := func() (*tui.Data, error) {
+		d, err := gather()
+		if err != nil {
+			return nil, err
+		}
+		return &tui.Data{
+			NodeName:      d.nodeName,
+			NodeVersion:   d.nodeVersion,
+			Pods:          d.pods,
+			Issues:        d.issues,
+			DispatcherLog: d.dispatcherLog,
+		}, nil
+	}
+
+	dispatchFn := func() (string, error) {
+		return RunDispatch()
+	}
+
+	m := tui.NewModel(gatherFn, dispatchFn)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }
