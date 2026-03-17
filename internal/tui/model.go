@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -131,6 +132,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.setMaxSlots(m.maxSlots)
 				}
 				m.statusMsg = fmt.Sprintf("max agents: %d", m.maxSlots)
+			}
+		case "1", "2", "3", "4", "5", "6":
+			idx, _ := fmt.Sscanf(msg.String(), "%d", new(int))
+			if idx == 1 && m.data != nil {
+				n := int(msg.String()[0] - '0')
+				if n >= 1 && n <= len(m.data.PRs) {
+					pr := m.data.PRs[n-1]
+					clip := fmt.Sprintf("/review %s %d", pr.Repo.Name, pr.Number)
+					copyToClipboard(clip)
+					m.statusMsg = fmt.Sprintf("copied: %s", clip)
+				}
 			}
 		}
 	case tea.WindowSizeMsg:
@@ -339,15 +351,15 @@ func (m Model) renderView(maxVisiblePods int) string {
 	if len(d.PRs) == 0 {
 		prLines = append(prLines, dim.Render("  (no open pull requests)"))
 	} else {
-		prLines = append(prLines, titleFg.Render(fmt.Sprintf(" %-7s %-12s %-7s %-20s Title", "PR", "Repo", "Issue", "Branch")))
+		prLines = append(prLines, titleFg.Render(fmt.Sprintf(" %-3s %-7s %-12s %-7s %-20s Title", "#", "PR", "Repo", "Issue", "Branch")))
 		maxPRs := min(len(d.PRs), 6)
-		for _, pr := range d.PRs[:maxPRs] {
+		for idx, pr := range d.PRs[:maxPRs] {
 			pl := prLink(pr.Repo, pr.Number)
 			issueRef := "       "
 			if pr.Issue > 0 {
 				issueRef = issueLink(pr.Repo, pr.Issue)
 			}
-			line := fmt.Sprintf(" %s %-12s %-7s %-20s %s", pl, pr.Repo.Name, issueRef, truncate(pr.Branch, 20), truncate(pr.Title, w-57))
+			line := fmt.Sprintf(" %-3d %s %-12s %-7s %-20s %s", idx+1, pl, pr.Repo.Name, issueRef, truncate(pr.Branch, 20), truncate(pr.Title, w-61))
 			prLines = append(prLines, cyan.Render(line))
 		}
 	}
@@ -359,7 +371,7 @@ func (m Model) renderView(maxVisiblePods int) string {
 	if m.statusMsg != "" {
 		sections = append(sections, yellow.Render(" "+m.statusMsg))
 	}
-	sections = append(sections, dim.Render(" q: quit  n: dispatch  p: pause  d: dispatcher  l: live  r: refresh  +/-: agents"))
+	sections = append(sections, dim.Render(" q: quit  n: dispatch  p: pause  d: dispatcher  l: live  r: refresh  +/-: agents  1-6: copy /review"))
 
 	return strings.Join(sections, "\n")
 }
@@ -415,6 +427,12 @@ func prLink(repo types.Repo, number int) string {
 		link += strings.Repeat(" ", 7-len(text))
 	}
 	return link
+}
+
+func copyToClipboard(s string) {
+	c := exec.Command("clip")
+	c.Stdin = strings.NewReader(s)
+	c.Run()
 }
 
 func truncate(s string, max int) string {
