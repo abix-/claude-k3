@@ -252,12 +252,13 @@ func (m Model) renderView(maxVisiblePods int) string {
 		if d.OperatorLog == "" {
 			dispLines = append(dispLines, dim.Render("  (no operator logs)"))
 		} else {
-			for _, line := range strings.Split(strings.TrimSpace(d.OperatorLog), "\n") {
-				// word wrap long lines
-				wrapped := wordWrap(line, w-4)
-				for _, wl := range wrapped {
-					dispLines = append(dispLines, dim.Render("  "+wl))
-				}
+			lines := strings.Split(strings.TrimSpace(d.OperatorLog), "\n")
+			max := 10
+			if len(lines) > max {
+				lines = lines[len(lines)-max:]
+			}
+			for _, line := range lines {
+				dispLines = append(dispLines, dim.Render("  "+format.Truncate(line, w-4)))
 			}
 		}
 		sections = append(sections, sep)
