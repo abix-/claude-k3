@@ -136,9 +136,12 @@ func gather() (*dashboard, error) {
 	}()
 	wg.Wait()
 
-	// fetch log tails in parallel
+	// fetch log tails only for running/pending pods
 	var lwg sync.WaitGroup
 	for i := range pods {
+		if pods[i].Phase != types.PhaseRunning && pods[i].Phase != types.PhasePending {
+			continue
+		}
 		lwg.Add(1)
 		go func(idx int) {
 			defer lwg.Done()
@@ -313,11 +316,14 @@ func runTop(cmd *cobra.Command, args []string) error {
 		}()
 		wg2.Wait()
 
-		// fetch tails + live logs for running pods
+		// fetch tails + live logs for running/pending pods only
 		var lwg sync.WaitGroup
 		var liveLogs []tui.LiveLog
 		var liveMu sync.Mutex
 		for i := range pods {
+			if pods[i].Phase != types.PhaseRunning && pods[i].Phase != types.PhasePending {
+				continue
+			}
 			lwg.Add(1)
 			go func(idx int) {
 				defer lwg.Done()
