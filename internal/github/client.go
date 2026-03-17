@@ -148,6 +148,30 @@ func GetAllOpenIssues(ctx context.Context) ([]types.Issue, error) {
 	return result, nil
 }
 
+// ClaimIssue transitions an issue from ready/needs-review to claimed with an owner label.
+// It removes ready and needs-review labels, adds claimed + owner label, and posts a claim comment.
+func ClaimIssue(ctx context.Context, repo types.Repo, issueNumber int, agentName string) error {
+	client := newClient(ctx)
+
+	// remove ready and needs-review, add claimed
+	for _, label := range []string{"ready", "needs-review"} {
+		client.Issues.RemoveLabelForIssue(ctx, repo.Owner, repo.Name, issueNumber, label)
+	}
+	_, _, err := client.Issues.AddLabelsToIssue(ctx, repo.Owner, repo.Name, issueNumber, []string{"claimed", agentName})
+	if err != nil {
+		return fmt.Errorf("add labels: %w", err)
+	}
+
+	// post claim comment
+	body := fmt.Sprintf("## Claude\n- State: ready -> claimed\n- Owner: %s\n- Intent: dispatched by k3sc dispatcher", agentName)
+	_, _, err = client.Issues.CreateComment(ctx, repo.Owner, repo.Name, issueNumber, &gh.IssueComment{Body: &body})
+	if err != nil {
+		return fmt.Errorf("post comment: %w", err)
+	}
+
+	return nil
+}
+
 func GetWorkflowIssues(ctx context.Context) ([]types.Issue, error) {
 	return GetAllOpenIssues(ctx)
 }
