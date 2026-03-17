@@ -60,33 +60,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 func (r *Reconciler) handlePending(ctx context.Context, task *ClaudeTask) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	maxSlots := dispatch.MaxSlots()
-
-	// find slots in use by other active ClaudeTasks (source of truth is the CRs, not k8s Jobs)
-	var allTasks ClaudeTaskList
-	if err := r.List(ctx, &allTasks, client.InNamespace(task.Namespace)); err != nil {
-		return ctrl.Result{RequeueAfter: RequeueDelay}, err
-	}
-	var usedSlots []int
-	for _, t := range allTasks.Items {
-		if t.Name == task.Name {
-			continue
-		}
-		if t.Status.Phase == TaskPhaseAssigned || t.Status.Phase == TaskPhaseRunning {
-			usedSlots = append(usedSlots, t.Status.Slot)
-		}
-	}
-	slot := dispatch.FindFreeSlotFromList(usedSlots, maxSlots)
-	if slot == -1 {
-		logger.Info("no free slots, requeueing", "issue", task.Spec.IssueNumber)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-	}
-
+	// slot and agent are pre-assigned by the scanner in the spec
 	task.Status.Phase = TaskPhaseAssigned
-	task.Status.Agent = types.AgentName(slot)
-	task.Status.Slot = slot
+	task.Status.Agent = task.Spec.Agent
+	task.Status.Slot = task.Spec.Slot
 
-	logger.Info("assigned", "issue", task.Spec.IssueNumber, "agent", task.Status.Agent, "slot", slot)
+	logger.Info("assigned", "issue", task.Spec.IssueNumber, "agent", task.Spec.Agent, "slot", task.Spec.Slot)
 	return ctrl.Result{Requeue: true}, r.Status().Update(ctx, task)
 }
 

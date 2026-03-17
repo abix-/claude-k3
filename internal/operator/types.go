@@ -35,6 +35,8 @@ type ClaudeTaskSpec struct {
 	RepoName    string `json:"repoName"`    // e.g. "endless"
 	IssueNumber int    `json:"issueNumber"`
 	RepoURL     string `json:"repoURL"`     // clone URL
+	Slot        int    `json:"slot"`         // assigned by scanner, immutable
+	Agent       string `json:"agent"`        // assigned by scanner, immutable (e.g. "claude-a")
 }
 
 type TaskPhase string

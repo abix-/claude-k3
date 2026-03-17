@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abix-/k3sc/internal/dispatch"
 	"github.com/abix-/k3sc/internal/github"
+	"github.com/abix-/k3sc/internal/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -15,9 +17,9 @@ import (
 const (
 	ScanInterval = 60 * time.Second
 	TaskTTL      = 24 * time.Hour
+	MaxFailures  = 3
 )
 
-// Scanner polls GitHub for eligible issues and creates ClaudeTask CRs.
 func Scanner(ctx context.Context, c client.Client, namespace string) {
 	logger := log.FromContext(ctx).WithName("scanner")
 	logger.Info("starting github scanner", "interval", ScanInterval)
@@ -49,30 +51,41 @@ func scan(ctx context.Context, c client.Client, namespace string) {
 		return
 	}
 
-	// track active tasks and failure counts per issue
+	// build state from existing tasks
 	activeIssues := map[string]bool{}
 	failCounts := map[string]int{}
+	usedSlots := []int{}
 	for _, t := range existing.Items {
 		key := fmt.Sprintf("%s-%d", t.Spec.RepoName, t.Spec.IssueNumber)
 		if !IsTerminal(t.Status.Phase) && t.Status.Phase != "" {
 			activeIssues[key] = true
+			usedSlots = append(usedSlots, t.Spec.Slot)
 		}
 		if t.Status.Phase == TaskPhaseFailed {
 			failCounts[key]++
 		}
 	}
 
-	const maxFailures = 3
+	maxSlots := dispatch.MaxSlots()
+
+	// create tasks one at a time, updating usedSlots after each
 	for _, issue := range eligible {
 		key := fmt.Sprintf("%s-%d", issue.Repo.Name, issue.Number)
 		if activeIssues[key] {
 			continue
 		}
-		if failCounts[key] >= maxFailures {
+		if failCounts[key] >= MaxFailures {
 			fmt.Printf("[scanner] %s blocked after %d failures\n", key, failCounts[key])
 			continue
 		}
 
+		slot := dispatch.FindFreeSlotFromList(usedSlots, maxSlots)
+		if slot == -1 {
+			fmt.Printf("[scanner] no free slots\n")
+			break
+		}
+
+		agent := types.AgentName(slot)
 		ts := time.Now().Unix()
 		name := fmt.Sprintf("%s-%d-%d", strings.ReplaceAll(issue.Repo.Name, "/", "-"), issue.Number, ts)
 
@@ -90,6 +103,8 @@ func scan(ctx context.Context, c client.Client, namespace string) {
 				RepoName:    issue.Repo.Name,
 				IssueNumber: issue.Number,
 				RepoURL:     issue.Repo.CloneURL(),
+				Slot:        slot,
+				Agent:       agent,
 			},
 			Status: ClaudeTaskStatus{
 				Phase: TaskPhasePending,
@@ -97,13 +112,17 @@ func scan(ctx context.Context, c client.Client, namespace string) {
 		}
 
 		if err := c.Create(ctx, task); err != nil {
-			fmt.Printf("[scanner] create task %s: %v\n", name, err)
-		} else {
-			fmt.Printf("[scanner] created task %s\n", name)
+			fmt.Printf("[scanner] create %s: %v\n", name, err)
+			continue
 		}
+		fmt.Printf("[scanner] created %s (slot %d, %s)\n", name, slot, agent)
+
+		// update in-memory state so next iteration sees this slot as used
+		usedSlots = append(usedSlots, slot)
+		activeIssues[key] = true
 	}
 
-	// TTL cleanup: delete terminal tasks older than 24h
+	// TTL cleanup
 	for i := range existing.Items {
 		t := &existing.Items[i]
 		if !IsTerminal(t.Status.Phase) {
