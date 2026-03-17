@@ -3,7 +3,9 @@ package github
 import (
 	"context"
 	"os"
+	"os/exec"
 	"sort"
+	"strings"
 
 	"github.com/abix-/k3s-claude/internal/types"
 	gh "github.com/google/go-github/v68/github"
@@ -14,6 +16,12 @@ func newClient(ctx context.Context) *gh.Client {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
 		token = os.Getenv("GH_TOKEN")
+	}
+	// fallback: read from gh CLI auth store
+	if token == "" {
+		if out, err := exec.Command("gh", "auth", "token").Output(); err == nil {
+			token = strings.TrimSpace(string(out))
+		}
 	}
 	if token == "" {
 		return gh.NewClient(nil)
