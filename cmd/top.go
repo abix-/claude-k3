@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
+	"github.com/abix-/k3sc/internal/format"
 	"github.com/abix-/k3sc/internal/github"
 	"github.com/abix-/k3sc/internal/k8s"
 	"github.com/abix-/k3sc/internal/tui"
@@ -67,33 +67,6 @@ var topCmd = &cobra.Command{
 	Use:   "top",
 	Short: "Dashboard of agent pods, GitHub issues, and cluster health",
 	RunE:  runTop,
-}
-
-var loc *time.Location
-
-func init() {
-	loc, _ = time.LoadLocation("America/New_York")
-}
-
-func fmtTime(t *time.Time) string {
-	if t == nil {
-		return ""
-	}
-	return t.In(loc).Format("3:04 PM MST")
-}
-
-func fmtDuration(start *time.Time, end *time.Time) string {
-	if start == nil {
-		return ""
-	}
-	e := time.Now()
-	if end != nil {
-		e = *end
-	}
-	d := e.Sub(*start)
-	mins := int(d.Minutes())
-	secs := int(d.Seconds()) % 60
-	return fmt.Sprintf("%dm %02ds", mins, secs)
 }
 
 type dashboard struct {
@@ -210,8 +183,10 @@ func printDashboard(d *dashboard) {
 	if d.dispatcherLog == "" {
 		fmt.Println("  (no dispatcher runs found)")
 	} else {
-		for _, line := range splitLines(d.dispatcherLog) {
-			fmt.Printf("  %s\n", line)
+		for _, line := range strings.Split(strings.TrimSpace(d.dispatcherLog), "\n") {
+			if line != "" {
+				fmt.Printf("  %s\n", line)
+			}
 		}
 	}
 	fmt.Println()
@@ -223,13 +198,13 @@ func printDashboard(d *dashboard) {
 	} else {
 		fmt.Printf("%-7s %-12s %-14s %-10s Title\n", "Issue", "Repo", "State", "Owner")
 		for _, i := range d.issues {
-			fmt.Printf("%s %-12s %-14s %-10s %s\n", issueLink(i.Repo, i.Number), i.Repo.Name, i.State, i.Owner, i.Title)
+			fmt.Printf("%s %-12s %-14s %-10s %s\n", format.IssueLink(i.Repo, i.Number), i.Repo.Name, i.State, i.Owner, i.Title)
 		}
 	}
 	fmt.Println()
 
 	// 3. Agents
-	running, completed, failed := countPhases(d.pods)
+	running, completed, failed := format.CountPhases(d.pods)
 	fmt.Printf("=== AGENTS (%d running, %d completed, %d failed) ===\n", running, completed, failed)
 	if len(d.pods) == 0 {
 		fmt.Println("  (no agent pods)")
@@ -238,66 +213,12 @@ func printDashboard(d *dashboard) {
 		for _, pod := range d.pods {
 			agent := types.AgentName(pod.Slot)
 			fmt.Printf("%s %-10s %-11s %-16s %-10s %s\n",
-				issueLink(pod.Repo, pod.Issue), agent, pod.Phase.Display(),
-				fmtTime(pod.Started), fmtDuration(pod.Started, pod.Finished),
+				format.IssueLink(pod.Repo, pod.Issue), agent, pod.Phase.Display(),
+				format.FmtTime(pod.Started), format.FmtDuration(pod.Started, pod.Finished),
 				pod.LogTail)
 		}
 	}
 	fmt.Println()
-}
-
-func issueLink(repo types.Repo, number int) string {
-	url := fmt.Sprintf("https://github.com/%s/%s/issues/%d", repo.Owner, repo.Name, number)
-	text := fmt.Sprintf("#%d", number)
-	link := fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
-	if len(text) < 7 {
-		link += strings.Repeat(" ", 7-len(text))
-	}
-	return link
-}
-
-func countPhases(pods []types.AgentPod) (running, completed, failed int) {
-	for _, p := range pods {
-		switch p.Phase {
-		case types.PhaseRunning, types.PhasePending:
-			running++
-		case types.PhaseSucceeded:
-			completed++
-		case types.PhaseFailed:
-			failed++
-		}
-	}
-	return
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	for _, l := range split(s, '\n') {
-		if l != "" {
-			lines = append(lines, l)
-		}
-	}
-	return lines
-}
-
-func split(s string, sep byte) []string {
-	var result []string
-	for len(s) > 0 {
-		idx := -1
-		for i := 0; i < len(s); i++ {
-			if s[i] == sep {
-				idx = i
-				break
-			}
-		}
-		if idx == -1 {
-			result = append(result, s)
-			break
-		}
-		result = append(result, s[:idx])
-		s = s[idx+1:]
-	}
-	return result
 }
 
 func runTop(cmd *cobra.Command, args []string) error {
