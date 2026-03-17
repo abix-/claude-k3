@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,6 +23,20 @@ var cargoLockCmd = &cobra.Command{
 	Long:               "Wraps cargo commands with an exclusive file lock so concurrent agents don't clobber each other.",
 	DisableFlagParsing: true,
 	RunE:               runCargoLock,
+}
+
+// killEndlessExe terminates endless.exe on Windows if it is running.
+// It is a no-op on non-Windows platforms and when the process is not running.
+func killEndlessExe() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	cmd := exec.Command("taskkill", "/F", "/IM", "endless.exe")
+	// ignore error: exit code 128 means process not found, which is fine
+	if err := cmd.Run(); err == nil {
+		// process was killed; wait briefly for file handles to release
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func runCargoLock(cmd *cobra.Command, args []string) error {
@@ -57,6 +72,8 @@ func runCargoLock(cmd *cobra.Command, args []string) error {
 		ts := time.Now().Format("15:04:05")
 		fmt.Fprintf(os.Stderr, "[cargo-lock] %s released lock\n", ts)
 	}()
+
+	killEndlessExe()
 
 	ts = time.Now().Format("15:04:05")
 	cargoArgs := args
