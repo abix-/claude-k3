@@ -4,6 +4,6 @@ secret-values.yaml
 *.pem
 
 # build artifacts
-k3s-claude.exe
-k3s-claude
-image/k3s-claude
+*.exe
+*.exe~
+image/k3sc
