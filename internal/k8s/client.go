@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,17 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+const (
+	DispatcherCronJobName              = "claude-dispatcher"
+	DispatcherDefaultSchedule          = "*/3 * * * *"
+	DispatcherHourlySchedule           = "0 * * * *"
+	DispatcherNormalScheduleAnnotation = "claude-k3.abix.dev/normal-schedule"
+	DispatcherUsageResetAtAnnotation   = "claude-k3.abix.dev/usage-reset-at"
+	UsageLimitMessage                  = "You're out of extra usage"
+)
+
+var usageLimitResetPattern = regexp.MustCompile(`(?i)resets ([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)) \(([^)]+)\)`)
 
 func NewClient() (*kubernetes.Clientset, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
@@ -82,7 +94,7 @@ func GetAgentPods(ctx context.Context, cs *kubernetes.Clientset) ([]types.AgentP
 		if result[i].Started == nil || result[j].Started == nil {
 			return false
 		}
-		return result[i].Started.Before(*result[j].Started)
+		return result[j].Started.Before(*result[i].Started)
 	})
 
 	return result, nil
@@ -105,6 +117,188 @@ func GetActiveSlots(ctx context.Context, cs *kubernetes.Clientset) ([]int, error
 		}
 	}
 	return slots, nil
+}
+
+func podEventTime(pod types.AgentPod) time.Time {
+	if pod.Finished != nil {
+		return *pod.Finished
+	}
+	if pod.Started != nil {
+		return *pod.Started
+	}
+	return time.Time{}
+}
+
+func podFailedWithinLookback(pod types.AgentPod, now time.Time, lookback time.Duration) bool {
+	if pod.Phase != types.PhaseFailed {
+		return false
+	}
+	eventTime := podEventTime(pod)
+	return !eventTime.IsZero() && eventTime.After(now.Add(-lookback))
+}
+
+func ParseUsageLimitResetTime(now time.Time, log string) (time.Time, bool) {
+	match := usageLimitResetPattern.FindStringSubmatch(log)
+	if len(match) != 3 {
+		return time.Time{}, false
+	}
+
+	timePart := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(match[1])), " ", "")
+	zoneName := strings.ToUpper(strings.TrimSpace(match[2]))
+	loc, err := time.LoadLocation(zoneName)
+	if err != nil {
+		if zoneName != "UTC" {
+			return time.Time{}, false
+		}
+		loc = time.UTC
+	}
+
+	base := now.In(loc)
+	candidateDate := base.Format("2006-01-02")
+	candidate := fmt.Sprintf("%s %s", candidateDate, timePart)
+
+	var parsed time.Time
+	for _, layout := range []string{"2006-01-02 3pm", "2006-01-02 3:04pm"} {
+		parsed, err = time.ParseInLocation(layout, candidate, loc)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return time.Time{}, false
+	}
+	if !parsed.After(base) {
+		parsed = parsed.Add(24 * time.Hour)
+	}
+	return parsed.UTC(), true
+}
+
+func FindRecentUsageLimitPodFromLogs(now time.Time, lookback time.Duration, pods []types.AgentPod, logs map[string]string) *types.AgentPod {
+	var matches []types.AgentPod
+	for _, pod := range pods {
+		if !podFailedWithinLookback(pod, now, lookback) {
+			continue
+		}
+		if strings.Contains(logs[pod.Name], UsageLimitMessage) {
+			matches = append(matches, pod)
+		}
+	}
+	if len(matches) == 0 {
+		return nil
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		return podEventTime(matches[i]).After(podEventTime(matches[j]))
+	})
+	pod := matches[0]
+	return &pod
+}
+
+func FindRecentUsageLimitPod(ctx context.Context, cs *kubernetes.Clientset, lookback time.Duration) (*types.AgentPod, string, error) {
+	pods, err := GetAgentPods(ctx, cs)
+	if err != nil {
+		return nil, "", err
+	}
+
+	now := time.Now()
+	logs := map[string]string{}
+	for _, pod := range pods {
+		if !podFailedWithinLookback(pod, now, lookback) {
+			continue
+		}
+		lines, err := GetPodLogLines(ctx, cs, pod.Name, 40)
+		if err != nil {
+			return nil, "", err
+		}
+		logs[pod.Name] = strings.Join(lines, "\n")
+	}
+
+	pod := FindRecentUsageLimitPodFromLogs(now, lookback, pods, logs)
+	if pod == nil {
+		return nil, "", nil
+	}
+	return pod, logs[pod.Name], nil
+}
+
+func CheckAndRestoreDispatcherBackoff(ctx context.Context, cs *kubernetes.Clientset, name string, now time.Time) (bool, bool, string, *time.Time, error) {
+	cronjob, err := cs.BatchV1().CronJobs(types.Namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return false, false, "", nil, err
+	}
+	if cronjob.Annotations == nil {
+		return false, false, "", nil, nil
+	}
+
+	resetAtRaw := cronjob.Annotations[DispatcherUsageResetAtAnnotation]
+	if resetAtRaw == "" {
+		return false, false, "", nil, nil
+	}
+	resetAt, err := time.Parse(time.RFC3339, resetAtRaw)
+	if err != nil {
+		return false, false, "", nil, err
+	}
+	if now.Before(resetAt) {
+		return true, false, cronjob.Spec.Schedule, &resetAt, nil
+	}
+
+	normal := cronjob.Annotations[DispatcherNormalScheduleAnnotation]
+	if normal == "" {
+		normal = DispatcherDefaultSchedule
+	}
+	cronjob = cronjob.DeepCopy()
+	cronjob.Spec.Schedule = normal
+	delete(cronjob.Annotations, DispatcherNormalScheduleAnnotation)
+	delete(cronjob.Annotations, DispatcherUsageResetAtAnnotation)
+	if len(cronjob.Annotations) == 0 {
+		cronjob.Annotations = nil
+	}
+	if _, err := cs.BatchV1().CronJobs(types.Namespace).Update(ctx, cronjob, metav1.UpdateOptions{}); err != nil {
+		return false, false, "", nil, err
+	}
+	return false, true, normal, &resetAt, nil
+}
+
+func SetDispatcherBackoff(ctx context.Context, cs *kubernetes.Clientset, name string, resetAt time.Time) (bool, string, error) {
+	cronjob, err := cs.BatchV1().CronJobs(types.Namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return false, "", err
+	}
+	previous := cronjob.Spec.Schedule
+	cronjob = cronjob.DeepCopy()
+	if cronjob.Annotations == nil {
+		cronjob.Annotations = map[string]string{}
+	}
+
+	normal := cronjob.Annotations[DispatcherNormalScheduleAnnotation]
+	if normal == "" {
+		normal = previous
+		if normal == DispatcherHourlySchedule {
+			normal = DispatcherDefaultSchedule
+		}
+	}
+	desiredResetAt := resetAt.UTC().Format(time.RFC3339)
+	changed := false
+
+	if cronjob.Spec.Schedule != DispatcherHourlySchedule {
+		cronjob.Spec.Schedule = DispatcherHourlySchedule
+		changed = true
+	}
+	if cronjob.Annotations[DispatcherNormalScheduleAnnotation] != normal {
+		cronjob.Annotations[DispatcherNormalScheduleAnnotation] = normal
+		changed = true
+	}
+	if cronjob.Annotations[DispatcherUsageResetAtAnnotation] != desiredResetAt {
+		cronjob.Annotations[DispatcherUsageResetAtAnnotation] = desiredResetAt
+		changed = true
+	}
+	if !changed {
+		return false, previous, nil
+	}
+
+	if _, err := cs.BatchV1().CronJobs(types.Namespace).Update(ctx, cronjob, metav1.UpdateOptions{}); err != nil {
+		return false, previous, err
+	}
+	return true, previous, nil
 }
 
 func GetPodLogTail(ctx context.Context, cs *kubernetes.Clientset, podName string, lines int64) (string, error) {
