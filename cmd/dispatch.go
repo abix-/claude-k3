@@ -1,0 +1,136 @@
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/abix-/k3s-claude/internal/github"
+	"github.com/abix-/k3s-claude/internal/k8s"
+	"github.com/spf13/cobra"
+)
+
+func init() {
+	rootCmd.AddCommand(dispatchCmd)
+}
+
+var dispatchCmd = &cobra.Command{
+	Use:   "dispatch",
+	Short: "Find eligible GitHub issues and create k8s Jobs",
+	RunE:  runDispatch,
+}
+
+func RunDispatch() (string, error) {
+	return runDispatchInner()
+}
+
+func runDispatch(cmd *cobra.Command, args []string) error {
+	log, err := runDispatchInner()
+	if err != nil {
+		return err
+	}
+	fmt.Print(log)
+	return nil
+}
+
+func runDispatchInner() (string, error) {
+	ctx := context.Background()
+	var log []string
+
+	maxSlots := 3
+	if v := os.Getenv("MAX_SLOTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			maxSlots = n
+		}
+	}
+	templatePath := os.Getenv("JOB_TEMPLATE")
+	if templatePath == "" {
+		templatePath = "/etc/dispatcher/job-template.yaml"
+	}
+
+	loc, _ := time.LoadLocation("America/New_York")
+	now := time.Now().In(loc).Format("2006-01-02 3:04:05 PM MST")
+	log = append(log, fmt.Sprintf("[dispatcher] %s starting scan", now))
+
+	eligible, err := github.GetEligibleIssues(ctx)
+	if err != nil {
+		log = append(log, fmt.Sprintf("[dispatcher] github error: %v", err))
+		return strings.Join(log, "\n") + "\n", nil
+	}
+	if len(eligible) == 0 {
+		log = append(log, "[dispatcher] no eligible issues found")
+		return strings.Join(log, "\n") + "\n", nil
+	}
+
+	var nums []string
+	for _, i := range eligible {
+		nums = append(nums, strconv.Itoa(i.Number))
+	}
+	log = append(log, fmt.Sprintf("[dispatcher] eligible issues: %s", strings.Join(nums, " ")))
+
+	cs, err := k8s.NewClient()
+	if err != nil {
+		return "", fmt.Errorf("k8s client: %w", err)
+	}
+
+	activeSlots, err := k8s.GetActiveSlots(ctx, cs)
+	if err != nil {
+		return "", fmt.Errorf("active slots: %w", err)
+	}
+
+	slotStrs := make([]string, len(activeSlots))
+	for i, s := range activeSlots {
+		slotStrs[i] = strconv.Itoa(s)
+	}
+	log = append(log, fmt.Sprintf("[dispatcher] active jobs: %d, slots in use: %s", len(activeSlots), strings.Join(slotStrs, " ")))
+
+	template, err := os.ReadFile(templatePath)
+	if err != nil {
+		return "", fmt.Errorf("read template %s: %w", templatePath, err)
+	}
+
+	created := 0
+	for _, issue := range eligible {
+		if len(activeSlots) >= maxSlots {
+			log = append(log, fmt.Sprintf("[dispatcher] at max capacity (%d), stopping", maxSlots))
+			break
+		}
+
+		slot := -1
+		for i := 1; i <= maxSlots; i++ {
+			found := false
+			for _, s := range activeSlots {
+				if s == i {
+					found = true
+					break
+				}
+			}
+			if !found {
+				slot = i
+				break
+			}
+		}
+		if slot == -1 {
+			log = append(log, "[dispatcher] no free slots available")
+			break
+		}
+
+		log = append(log, fmt.Sprintf("[dispatcher] creating job for issue %d in slot %d", issue.Number, slot))
+		name, err := k8s.CreateJobFromTemplate(ctx, cs, string(template), issue.Number, slot)
+		if err != nil {
+			log = append(log, fmt.Sprintf("  ERROR: %v", err))
+		} else {
+			log = append(log, fmt.Sprintf("  job.batch/%s created", name))
+		}
+
+		activeSlots = append(activeSlots, slot)
+		created++
+	}
+
+	now = time.Now().In(loc).Format("2006-01-02 3:04:05 PM MST")
+	log = append(log, fmt.Sprintf("[dispatcher] %s scan complete -- created %d jobs", now, created))
+	return strings.Join(log, "\n") + "\n", nil
+}

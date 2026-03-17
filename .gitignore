@@ -3,9 +3,7 @@ secret-values.yaml
 *.key
 *.pem
 
-
-# Added by cargo
-
-/target
-target/
+# build artifacts
+k3s-claude.exe
+k3s-claude
 image/k3s-claude
