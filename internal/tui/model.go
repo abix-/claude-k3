@@ -10,21 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	loc, _ = time.LoadLocation("America/New_York")
-
-	headerStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	runningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
-	failedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // red
-	doneStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // gray
-	humanStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("13")) // magenta
-	reviewStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("14")) // cyan
-	readyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
-	claimedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // yellow
-	dimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	statusStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-)
+var loc, _ = time.LoadLocation("America/New_York")
 
 type Data struct {
 	NodeName      string
@@ -34,13 +20,11 @@ type Data struct {
 	DispatcherLog string
 }
 
-// GatherFunc is called to refresh data
 type GatherFunc func() (*Data, error)
-
-// DispatchFunc is called when user presses 'n'
 type DispatchFunc func() (string, error)
 
 type tickMsg time.Time
+type dispatchDone string
 
 type Model struct {
 	data       *Data
@@ -53,24 +37,16 @@ type Model struct {
 }
 
 func NewModel(gatherFn GatherFunc, dispatchFn DispatchFunc) Model {
-	return Model{
-		gatherFn:   gatherFn,
-		dispatchFn: dispatchFn,
-	}
+	return Model{gatherFn: gatherFn, dispatchFn: dispatchFn}
 }
 
 func tickCmd() tea.Cmd {
-	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		func() tea.Msg {
-			d, _ := m.gatherFn()
-			return d
-		},
+		func() tea.Msg { d, _ := m.gatherFn(); return d },
 		tickCmd(),
 	)
 }
@@ -93,20 +69,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "r":
 			m.statusMsg = "refreshing..."
-			return m, func() tea.Msg {
-				d, _ := m.gatherFn()
-				return d
-			}
+			return m, func() tea.Msg { d, _ := m.gatherFn(); return d }
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 	case tickMsg:
 		return m, tea.Batch(
-			func() tea.Msg {
-				d, _ := m.gatherFn()
-				return d
-			},
+			func() tea.Msg { d, _ := m.gatherFn(); return d },
 			tickCmd(),
 		)
 	case *Data:
@@ -115,7 +85,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = ""
 		}
 	case dispatchDone:
-		// refresh after dispatch, keep the dispatch log
 		dispLog := string(msg)
 		d, _ := m.gatherFn()
 		if d != nil {
@@ -129,96 +98,116 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-type dispatchDone string
-
 func (m Model) View() string {
 	if m.quitting || m.data == nil {
 		return ""
 	}
 
-	var b strings.Builder
 	d := m.data
 	w := m.width
-	if w == 0 {
+	if w < 80 {
 		w = 120
 	}
 
-	// cluster
-	b.WriteString(titleStyle.Render("=== CLUSTER ===") + "\n")
 	running, completed, failed := countPhases(d.Pods)
-	b.WriteString(fmt.Sprintf(" Node: %s %s  |  Agents: %d running, %d completed\n\n",
-		d.NodeName, d.NodeVersion, running, completed))
 
-	// issues
-	b.WriteString(titleStyle.Render("=== GITHUB ISSUES ===") + "\n")
+	// styles
+	border := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		Width(w - 2)
+
+	titleFg := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	yellow := lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	magenta := lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+
+	var sections []string
+
+	// -- cluster --
+	clusterContent := fmt.Sprintf(" Node: %s %s  |  Agents: %d running, %d completed",
+		d.NodeName, d.NodeVersion, running, completed)
+	clusterBox := border.Copy().BorderTop(true).Render(
+		titleFg.Render(" Cluster") + "\n" + clusterContent)
+	sections = append(sections, clusterBox)
+
+	// -- issues --
+	var issueLines []string
 	if len(d.Issues) == 0 {
-		b.WriteString(dimStyle.Render("  (no issues with workflow labels)") + "\n")
+		issueLines = append(issueLines, dim.Render("  (no issues with workflow labels)"))
 	} else {
-		b.WriteString(headerStyle.Render(fmt.Sprintf("%-7s %-14s %-10s Title", "Issue", "State", "Owner")) + "\n")
+		issueLines = append(issueLines, titleFg.Render(fmt.Sprintf(" %-7s %-14s %-10s Title", "Issue", "State", "Owner")))
 		for _, i := range d.Issues {
-			line := fmt.Sprintf("#%-6d %-14s %-10s %s", i.Number, i.State, i.Owner, i.Title)
+			line := fmt.Sprintf(" #%-6d %-14s %-10s %s", i.Number, i.State, i.Owner, truncate(i.Title, w-40))
 			switch i.State {
 			case "claimed":
-				b.WriteString(claimedStyle.Render(line))
+				issueLines = append(issueLines, yellow.Render(line))
 			case "needs-human":
-				b.WriteString(humanStyle.Render(line))
+				issueLines = append(issueLines, magenta.Render(line))
 			case "needs-review":
-				b.WriteString(reviewStyle.Render(line))
+				issueLines = append(issueLines, cyan.Render(line))
 			case "ready":
-				b.WriteString(readyStyle.Render(line))
+				issueLines = append(issueLines, green.Render(line))
 			default:
-				b.WriteString(line)
+				issueLines = append(issueLines, line)
 			}
-			b.WriteString("\n")
 		}
 	}
-	b.WriteString("\n")
+	issueBox := border.Render(titleFg.Render(" GitHub Issues") + "\n" + strings.Join(issueLines, "\n"))
+	sections = append(sections, issueBox)
 
-	// dispatcher
-	b.WriteString(titleStyle.Render("=== DISPATCHER ===") + "\n")
+	// -- dispatcher --
+	var dispLines []string
 	if d.DispatcherLog == "" {
-		b.WriteString(dimStyle.Render("  (no dispatcher runs found)") + "\n")
+		dispLines = append(dispLines, dim.Render("  (no dispatcher runs found)"))
 	} else {
 		for _, line := range strings.Split(strings.TrimSpace(d.DispatcherLog), "\n") {
-			b.WriteString(dimStyle.Render("  "+line) + "\n")
+			dispLines = append(dispLines, dim.Render("  "+line))
 		}
 	}
-	b.WriteString("\n")
+	dispBox := border.Render(titleFg.Render(" Dispatcher (last run)") + "\n" + strings.Join(dispLines, "\n"))
+	sections = append(sections, dispBox)
 
-	// agents
-	b.WriteString(titleStyle.Render(fmt.Sprintf("=== AGENTS (%d running, %d completed, %d failed) ===", running, completed, failed)) + "\n")
+	// -- agents --
+	var agentLines []string
 	if len(d.Pods) == 0 {
-		b.WriteString(dimStyle.Render("  (no agent pods)") + "\n")
+		agentLines = append(agentLines, dim.Render("  (no agent pods)"))
 	} else {
-		b.WriteString(headerStyle.Render(fmt.Sprintf("%-7s %-10s %-11s %-16s %-10s Last Output", "Issue", "Agent", "Status", "Started", "Duration")) + "\n")
+		agentLines = append(agentLines, titleFg.Render(fmt.Sprintf(" %-7s %-10s %-11s %-16s %-10s Last Output", "Issue", "Agent", "Status", "Started", "Duration")))
 		for _, pod := range d.Pods {
 			agent := fmt.Sprintf("claude-%d", pod.Slot+types.SlotOffset)
 			started := fmtTime(pod.Started)
 			duration := fmtDuration(pod.Started, pod.Finished)
-			line := fmt.Sprintf("#%-6d %-10s %-11s %-16s %-10s %s",
-				pod.Issue, agent, pod.Phase.Display(), started, duration, pod.LogTail)
+			tail := truncate(pod.LogTail, w-65)
+			line := fmt.Sprintf(" #%-6d %-10s %-11s %-16s %-10s %s",
+				pod.Issue, agent, pod.Phase.Display(), started, duration, tail)
 			switch pod.Phase {
 			case types.PhaseRunning, types.PhasePending:
-				b.WriteString(runningStyle.Render(line))
+				agentLines = append(agentLines, green.Render(line))
 			case types.PhaseFailed:
-				b.WriteString(failedStyle.Render(line))
+				agentLines = append(agentLines, red.Render(line))
 			default:
-				b.WriteString(doneStyle.Render(line))
+				agentLines = append(agentLines, dim.Render(line))
 			}
-			b.WriteString("\n")
 		}
 	}
-	b.WriteString("\n")
+	agentTitle := fmt.Sprintf(" Agents (%d running, %d completed, %d failed)", running, completed, failed)
+	agentBox := border.Render(titleFg.Render(agentTitle) + "\n" + strings.Join(agentLines, "\n"))
+	sections = append(sections, agentBox)
 
-	// help bar
+	// -- help bar --
+	var helpLine string
 	if m.statusMsg != "" {
-		b.WriteString(statusStyle.Render(" "+m.statusMsg))
+		helpLine = yellow.Render(" " + m.statusMsg)
 	} else {
-		b.WriteString(dimStyle.Render(" q: quit  |  n: dispatch now  |  r: refresh  |  refreshes every 5s"))
+		helpLine = dim.Render(" q: quit  |  n: dispatch now  |  r: refresh  |  refreshes every 5s")
 	}
-	b.WriteString("\n")
+	sections = append(sections, helpLine)
 
-	return b.String()
+	return strings.Join(sections, "\n")
 }
 
 func fmtTime(t *time.Time) string {
@@ -252,4 +241,14 @@ func countPhases(pods []types.AgentPod) (running, completed, failed int) {
 		}
 	}
 	return
+}
+
+func truncate(s string, max int) string {
+	if max < 4 {
+		max = 4
+	}
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
 }
