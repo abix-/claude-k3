@@ -306,9 +306,9 @@ func (m Model) View() string {
 				}
 				return l
 			}()
-			issueRef := ""
+			issueRef := "       "
 			if pr.Issue > 0 {
-				issueRef = fmt.Sprintf("#%d", pr.Issue)
+				issueRef = issueLink(pr.Issue)
 			}
 			line := fmt.Sprintf(" %s %-7s %-20s %s", prLink, issueRef, truncate(pr.Branch, 20), truncate(pr.Title, w-45))
 			prLines = append(prLines, cyan.Render(line))
