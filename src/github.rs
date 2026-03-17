@@ -47,7 +47,7 @@ pub async fn get_issues_by_label(label: &str) -> Result<Vec<Issue>> {
 
         issues.push(Issue {
             number: item.number as u32,
-            title: item.title.chars().take(60).collect(),
+            title: item.title.clone(),
             state: state.to_string(),
             owner,
         });

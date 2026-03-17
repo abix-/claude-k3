@@ -79,11 +79,6 @@ fn print_dashboard(d: &Dashboard) {
             let agent = format!("claude-{}", pod.slot as u16 + SLOT_OFFSET as u16);
             let started = pod.started.map(fmt_time).unwrap_or_default();
             let duration = pod.started.map(|s| fmt_duration(s, pod.finished)).unwrap_or_default();
-            let tail = if pod.log_tail.len() > 50 {
-                format!("{}...", &pod.log_tail[..47])
-            } else {
-                pod.log_tail.clone()
-            };
             println!(
                 "#{:<6} {:<10} {:<11} {:<16} {:<10} {}",
                 pod.issue,
@@ -91,7 +86,7 @@ fn print_dashboard(d: &Dashboard) {
                 pod.phase.display(),
                 started,
                 duration,
-                tail
+                pod.log_tail
             );
         }
     }
@@ -137,6 +132,7 @@ async fn run_tui() -> Result<()> {
 
     let mut dashboard = gather().await?;
     let mut last_refresh = std::time::Instant::now();
+    let mut status_msg = String::new();
 
     loop {
         // refresh every 5 seconds
@@ -175,11 +171,7 @@ async fn run_tui() -> Result<()> {
                 let agent = format!("claude-{}", pod.slot as u16 + SLOT_OFFSET as u16);
                 let started = pod.started.map(fmt_time).unwrap_or_default();
                 let duration = pod.started.map(|s| fmt_duration(s, pod.finished)).unwrap_or_default();
-                let tail = if pod.log_tail.len() > 50 {
-                    format!("{}...", &pod.log_tail[..47])
-                } else {
-                    pod.log_tail.clone()
-                };
+                let tail = pod.log_tail.clone();
                 let style = match pod.phase {
                     PodPhase::Running => Style::default().fg(Color::Green),
                     PodPhase::Failed => Style::default().fg(Color::Red),
@@ -234,17 +226,47 @@ async fn run_tui() -> Result<()> {
             .block(Block::default().borders(Borders::ALL).title(" GitHub Issues "));
             f.render_widget(issue_table, chunks[2]);
 
-            // help bar
-            let help = Paragraph::new(" q: quit  |  refreshes every 5s")
-                .style(Style::default().fg(Color::DarkGray));
+            // help bar + status
+            let help_text = match status_msg.as_str() {
+                "" => " q: quit  |  n: dispatch now  |  r: refresh  |  refreshes every 5s".to_string(),
+                msg => format!(" {msg}"),
+            };
+            let help_style = if status_msg.is_empty() {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            let help = Paragraph::new(help_text).style(help_style);
             f.render_widget(help, chunks[3]);
         })?;
 
         // handle input
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    break;
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char('n') => {
+                            status_msg = "dispatching...".to_string();
+                            match crate::dispatch::run().await {
+                                Ok(_) => status_msg = "dispatch complete -- refreshing...".to_string(),
+                                Err(e) => status_msg = format!("dispatch error: {e}"),
+                            }
+                            if let Ok(d) = gather().await {
+                                dashboard = d;
+                            }
+                            last_refresh = std::time::Instant::now();
+                        }
+                        KeyCode::Char('r') => {
+                            status_msg = "refreshing...".to_string();
+                            if let Ok(d) = gather().await {
+                                dashboard = d;
+                            }
+                            last_refresh = std::time::Instant::now();
+                            status_msg = String::new();
+                        }
+                        _ => {}
+                    }
                 }
             }
         }

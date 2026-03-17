@@ -101,10 +101,7 @@ pub async fn get_pod_log_tail(client: &Client, pod_name: &str, lines: i64) -> Re
         })
         .collect();
 
-    Ok(meaningful.last().map(|s| {
-        let s = *s;
-        if s.len() > 80 { format!("{}...", &s[..77]) } else { s.to_string() }
-    }).unwrap_or_default())
+    Ok(meaningful.last().map(|s| s.to_string()).unwrap_or_default())
 }
 
 pub async fn get_full_log(client: &Client, pod_name: &str) -> Result<String> {
