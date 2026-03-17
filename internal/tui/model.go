@@ -270,14 +270,14 @@ func (m Model) renderView(maxVisiblePods int) string {
 		maxIssues := min(len(d.Issues), 10)
 		for _, i := range d.Issues[:maxIssues] {
 			line := fmt.Sprintf(" %s %-12s %-14s %-10s %s", format.IssueLink(i.Repo, i.Number), i.Repo.Name, i.State, i.Owner, format.Truncate(i.Title, w-52))
-			switch i.State {
-			case "claimed":
+			switch {
+			case i.Owner != "" && i.State != "needs-human" && i.State != "needs-review":
 				issueLines = append(issueLines, yellow.Render(line))
-			case "needs-human":
+			case i.State == "needs-human":
 				issueLines = append(issueLines, magenta.Render(line))
-			case "needs-review":
+			case i.State == "needs-review":
 				issueLines = append(issueLines, cyan.Render(line))
-			case "ready":
+			case i.State == "ready":
 				issueLines = append(issueLines, green.Render(line))
 			default:
 				issueLines = append(issueLines, line)

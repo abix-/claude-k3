@@ -39,24 +39,24 @@ func newClient(ctx context.Context) *gh.Client {
 }
 
 // parseIssueLabels extracts workflow state and owner from GitHub labels.
+// State is derived from workflow labels (needs-human, needs-review, ready)
+// or inferred from the presence of an owner label (owner label present = working).
 func parseIssueLabels(labels []*gh.Label) (state, owner string) {
-	for _, s := range []string{"claimed", "needs-human", "needs-review", "ready"} {
-		for _, l := range labels {
-			if l.GetName() == s {
-				state = s
-				break
-			}
-		}
-		if state != "" {
-			break
-		}
-	}
 	for _, l := range labels {
 		name := l.GetName()
-		if strings.HasPrefix(name, "claude-") || strings.HasPrefix(name, "codex-") {
-			owner = name
-			break
+		switch name {
+		case "needs-human", "needs-review", "ready":
+			if state == "" {
+				state = name
+			}
 		}
+		if owner == "" && (strings.HasPrefix(name, "claude-") || strings.HasPrefix(name, "codex-")) {
+			owner = name
+		}
+	}
+	// owner label without explicit state = being worked (owner IS the state)
+	if state == "" && owner != "" {
+		state = owner
 	}
 	return
 }
@@ -102,7 +102,7 @@ func GetAllOpenIssues(ctx context.Context) ([]types.Issue, error) {
 	client := newClient(ctx)
 
 	workflowLabels := map[string]bool{
-		"claimed": true, "needs-human": true, "needs-review": true, "ready": true,
+		"needs-human": true, "needs-review": true, "ready": true,
 	}
 
 	var result []types.Issue
@@ -154,11 +154,11 @@ func GetAllOpenIssues(ctx context.Context) ([]types.Issue, error) {
 func ClaimIssue(ctx context.Context, repo types.Repo, issueNumber int, agentName string) error {
 	client := newClient(ctx)
 
-	// remove ready and needs-review, add claimed
+	// remove ready and needs-review, add owner label
 	for _, label := range []string{"ready", "needs-review"} {
 		client.Issues.RemoveLabelForIssue(ctx, repo.Owner, repo.Name, issueNumber, label)
 	}
-	_, _, err := client.Issues.AddLabelsToIssue(ctx, repo.Owner, repo.Name, issueNumber, []string{"claimed", agentName})
+	_, _, err := client.Issues.AddLabelsToIssue(ctx, repo.Owner, repo.Name, issueNumber, []string{agentName})
 	if err != nil {
 		return fmt.Errorf("add labels: %w", err)
 	}
@@ -201,9 +201,7 @@ func GetOwnedIssues(ctx context.Context) ([]types.Issue, error) {
 // UnclaimIssue removes the owner label and claimed label, then adds returnLabel (ready or needs-review).
 func UnclaimIssue(ctx context.Context, repo types.Repo, issueNumber int, ownerLabel, returnLabel string) error {
 	client := newClient(ctx)
-	for _, label := range []string{ownerLabel, "claimed"} {
-		client.Issues.RemoveLabelForIssue(ctx, repo.Owner, repo.Name, issueNumber, label)
-	}
+	client.Issues.RemoveLabelForIssue(ctx, repo.Owner, repo.Name, issueNumber, ownerLabel)
 	_, _, err := client.Issues.AddLabelsToIssue(ctx, repo.Owner, repo.Name, issueNumber, []string{returnLabel})
 	if err != nil {
 		return fmt.Errorf("add %s label: %w", returnLabel, err)
