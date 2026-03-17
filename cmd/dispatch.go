@@ -48,7 +48,21 @@ func runDispatchInner() (string, error) {
 	}
 	templatePath := os.Getenv("JOB_TEMPLATE")
 	if templatePath == "" {
-		templatePath = "/etc/dispatcher/job-template.yaml"
+		// try local repo first, fall back to k8s pod path
+		for _, candidate := range []string{
+			"manifests/job-template.yaml",
+			"C:/code/k3s-claude/manifests/job-template.yaml",
+			"/mnt/c/code/k3s-claude/manifests/job-template.yaml",
+			"/etc/dispatcher/job-template.yaml",
+		} {
+			if _, err := os.Stat(candidate); err == nil {
+				templatePath = candidate
+				break
+			}
+		}
+		if templatePath == "" {
+			templatePath = "/etc/dispatcher/job-template.yaml"
+		}
 	}
 
 	loc, _ := time.LoadLocation("America/New_York")
