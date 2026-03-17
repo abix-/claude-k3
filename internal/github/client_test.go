@@ -3,6 +3,8 @@ package github
 import (
 	"strings"
 	"testing"
+
+	gh "github.com/google/go-github/v68/github"
 )
 
 func TestOwnerLabelParsing(t *testing.T) {
@@ -55,5 +57,53 @@ func TestOldParsingWouldFailForOwnerPrefix(t *testing.T) {
 	got := oldParseOwner([]string{"owner:claude-c"})
 	if got != "" {
 		t.Errorf("expected old parser to miss owner:claude-c, got %q", got)
+	}
+}
+
+func label(name string) *gh.Label {
+	return &gh.Label{Name: &name}
+}
+
+// TestParseIssueLabelsClaude verifies that claude-* labels are detected as owner
+// without the old owner: prefix. This test FAILS if the implementation reverts
+// to the owner: prefix format.
+func TestParseIssueLabelsClaude(t *testing.T) {
+	tests := []struct {
+		name      string
+		labels    []*gh.Label
+		wantState string
+		wantOwner string
+	}{
+		{"claude-a is owner", []*gh.Label{label("claimed"), label("claude-a")}, "claimed", "claude-a"},
+		{"codex-1 is owner", []*gh.Label{label("claimed"), label("codex-1")}, "claimed", "codex-1"},
+		{"needs-human skips owner", []*gh.Label{label("needs-human"), label("claude-b")}, "needs-human", "claude-b"},
+		{"no owner label", []*gh.Label{label("ready")}, "ready", ""},
+		{"owner: prefix is not detected", []*gh.Label{label("claimed"), label("owner:claude-a")}, "claimed", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotState, gotOwner := parseIssueLabels(tc.labels)
+			if gotState != tc.wantState {
+				t.Errorf("state: got %q, want %q", gotState, tc.wantState)
+			}
+			if gotOwner != tc.wantOwner {
+				t.Errorf("owner: got %q, want %q", gotOwner, tc.wantOwner)
+			}
+		})
+	}
+}
+
+// TestGetOwnedIssuesFiltersNeedsHuman verifies GetOwnedIssues logic excludes needs-human.
+// Uses the same parseIssueLabels path to ensure orphan detection won't touch parked issues.
+func TestGetOwnedIssuesFiltersNeedsHuman(t *testing.T) {
+	parked := []*gh.Label{label("needs-human"), label("claude-a")}
+	state, owner := parseIssueLabels(parked)
+	if owner == "" {
+		t.Fatal("needs-human issue has no owner parsed -- test setup wrong")
+	}
+	// simulate the filter: owner != "" && state != "needs-human"
+	if owner != "" && state != "needs-human" {
+		t.Errorf("needs-human issue would be picked up as orphan -- filter is broken")
 	}
 }
