@@ -8,13 +8,13 @@ import (
 	"github.com/abix-/k3sc/internal/types"
 )
 
-var Loc, _ = time.LoadLocation("America/New_York")
+var loc, _ = time.LoadLocation("America/New_York")
 
 func FmtTime(t *time.Time) string {
 	if t == nil {
 		return ""
 	}
-	return t.In(Loc).Format("3:04 PM MST")
+	return t.In(loc).Format("3:04 PM MST")
 }
 
 func FmtDuration(start, end *time.Time) string {
@@ -43,8 +43,8 @@ func CountPhases(pods []types.AgentPod) (running, completed, failed int) {
 	return
 }
 
-func IssueLink(repo types.Repo, number int) string {
-	url := fmt.Sprintf("https://github.com/%s/%s/issues/%d", repo.Owner, repo.Name, number)
+func repoLink(repo types.Repo, path string, number int) string {
+	url := fmt.Sprintf("https://github.com/%s/%s/%s/%d", repo.Owner, repo.Name, path, number)
 	text := fmt.Sprintf("#%d", number)
 	link := fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
 	if len(text) < 7 {
@@ -53,14 +53,12 @@ func IssueLink(repo types.Repo, number int) string {
 	return link
 }
 
+func IssueLink(repo types.Repo, number int) string {
+	return repoLink(repo, "issues", number)
+}
+
 func PRLink(repo types.Repo, number int) string {
-	url := fmt.Sprintf("https://github.com/%s/%s/pull/%d", repo.Owner, repo.Name, number)
-	text := fmt.Sprintf("#%d", number)
-	link := fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
-	if len(text) < 7 {
-		link += strings.Repeat(" ", 7-len(text))
-	}
-	return link
+	return repoLink(repo, "pull", number)
 }
 
 func Truncate(s string, max int) string {
