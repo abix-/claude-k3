@@ -166,7 +166,7 @@ func printDashboard(d *dashboard) {
 	} else {
 		fmt.Printf("%-7s %-14s %-10s Title\n", "Issue", "State", "Owner")
 		for _, i := range d.issues {
-			fmt.Printf("#%-6d %-14s %-10s %s\n", i.Number, i.State, i.Owner, i.Title)
+			fmt.Printf("%s %-14s %-10s %s\n", issueLink(i.Number), i.State, i.Owner, i.Title)
 		}
 	}
 	fmt.Println()
@@ -180,13 +180,18 @@ func printDashboard(d *dashboard) {
 		fmt.Printf("%-7s %-10s %-11s %-16s %-10s Last Output\n", "Issue", "Agent", "Status", "Started", "Duration")
 		for _, pod := range d.pods {
 			agent := fmt.Sprintf("claude-%d", pod.Slot+types.SlotOffset)
-			fmt.Printf("#%-6d %-10s %-11s %-16s %-10s %s\n",
-				pod.Issue, agent, pod.Phase.Display(),
+			fmt.Printf("%s %-10s %-11s %-16s %-10s %s\n",
+				issueLink(pod.Issue), agent, pod.Phase.Display(),
 				fmtTime(pod.Started), fmtDuration(pod.Started, pod.Finished),
 				pod.LogTail)
 		}
 	}
 	fmt.Println()
+}
+
+func issueLink(number int) string {
+	url := fmt.Sprintf("https://github.com/%s/%s/issues/%d", types.RepoOwner, types.RepoName, number)
+	return fmt.Sprintf("\033]8;;%s\033\\#%-6d\033]8;;\033\\", url, number)
 }
 
 func countPhases(pods []types.AgentPod) (running, completed, failed int) {

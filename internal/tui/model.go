@@ -176,7 +176,7 @@ func (m Model) View() string {
 	} else {
 		issueLines = append(issueLines, titleFg.Render(fmt.Sprintf(" %-7s %-14s %-10s Title", "Issue", "State", "Owner")))
 		for _, i := range d.Issues {
-			line := fmt.Sprintf(" #%-6d %-14s %-10s %s", i.Number, i.State, i.Owner, truncate(i.Title, w-40))
+			line := fmt.Sprintf(" %s %-14s %-10s %s", issueLink(i.Number), i.State, i.Owner, truncate(i.Title, w-40))
 			switch i.State {
 			case "claimed":
 				issueLines = append(issueLines, yellow.Render(line))
@@ -205,8 +205,8 @@ func (m Model) View() string {
 			started := fmtTime(pod.Started)
 			duration := fmtDuration(pod.Started, pod.Finished)
 			tail := truncate(pod.LogTail, w-65)
-			line := fmt.Sprintf(" #%-6d %-10s %-11s %-16s %-10s %s",
-				pod.Issue, agent, pod.Phase.Display(), started, duration, tail)
+			line := fmt.Sprintf(" %s %-10s %-11s %-16s %-10s %s",
+				issueLink(pod.Issue), agent, pod.Phase.Display(), started, duration, tail)
 			switch pod.Phase {
 			case types.PhaseRunning, types.PhasePending:
 				agentLines = append(agentLines, green.Render(line))
@@ -261,6 +261,11 @@ func countPhases(pods []types.AgentPod) (running, completed, failed int) {
 		}
 	}
 	return
+}
+
+func issueLink(number int) string {
+	url := fmt.Sprintf("https://github.com/%s/%s/issues/%d", types.RepoOwner, types.RepoName, number)
+	return fmt.Sprintf("\033]8;;%s\033\\#%-6d\033]8;;\033\\", url, number)
 }
 
 func truncate(s string, max int) string {
