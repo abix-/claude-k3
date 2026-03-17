@@ -11,6 +11,7 @@ import (
 
 	"github.com/abix-/k3sc/internal/github"
 	"github.com/abix-/k3sc/internal/k8s"
+	"github.com/abix-/k3sc/internal/types"
 	"github.com/spf13/cobra"
 )
 
@@ -176,10 +177,18 @@ func runDispatchInner() (string, error) {
 			break
 		}
 
-		log = append(log, fmt.Sprintf("[dispatcher] creating job for %s/%s#%d in slot %d", issue.Repo.Owner, issue.Repo.Name, issue.Number, slot))
+		agentName := types.AgentName(slot)
+		log = append(log, fmt.Sprintf("[dispatcher] claiming %s#%d for %s (slot %d)", issue.Repo.Name, issue.Number, agentName, slot))
+
+		if err := github.ClaimIssue(ctx, issue.Repo, issue.Number, agentName); err != nil {
+			log = append(log, fmt.Sprintf("  CLAIM ERROR: %v", err))
+			continue
+		}
+		log = append(log, fmt.Sprintf("  claimed on github"))
+
 		name, err := k8s.CreateJobFromTemplate(ctx, cs, string(template), issue.Number, slot, issue.Repo.CloneURL())
 		if err != nil {
-			log = append(log, fmt.Sprintf("  ERROR: %v", err))
+			log = append(log, fmt.Sprintf("  JOB ERROR: %v", err))
 		} else {
 			log = append(log, fmt.Sprintf("  job.batch/%s created", name))
 		}
