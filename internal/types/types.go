@@ -84,6 +84,35 @@ func RepoByName(name string) Repo {
 	return Repos[0]
 }
 
+// TaskInfo is a TUI-friendly view of a ClaudeTask CR.
+type TaskInfo struct {
+	Name     string
+	Repo     Repo
+	Issue    int
+	Phase    string // Pending, Running, Succeeded, Failed, Blocked
+	Agent    string
+	Slot     int
+	Attempts int
+	Started  *time.Time
+	Finished *time.Time
+	LogTail  string
+}
+
+func (t TaskInfo) PhaseOrder() int {
+	switch t.Phase {
+	case "Running", "Pending":
+		return 0
+	case "Succeeded":
+		return 1
+	case "Failed":
+		return 2
+	case "Blocked":
+		return 3
+	default:
+		return 4
+	}
+}
+
 type Issue struct {
 	Number int
 	Title  string

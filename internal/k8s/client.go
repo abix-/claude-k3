@@ -12,12 +12,16 @@ import (
 	"strings"
 	"time"
 
+	"encoding/json"
+
 	"github.com/abix-/k3sc/internal/types"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -32,20 +36,114 @@ const (
 
 var usageLimitResetPattern = regexp.MustCompile(`(?i)resets ([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)) \(([^)]+)\)`)
 
-func NewClient() (*kubernetes.Clientset, error) {
+func getConfig() (*rest.Config, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, nil).ClientConfig()
 	if err != nil {
-		// try in-cluster
 		config, err = clientcmd.BuildConfigFromFlags("", "")
 		if err != nil {
 			return nil, fmt.Errorf("k8s config: %w", err)
 		}
 	}
-	// increase QPS to avoid client-side throttling with many log requests
 	config.QPS = 50
 	config.Burst = 100
+	return config, nil
+}
+
+func NewClient() (*kubernetes.Clientset, error) {
+	config, err := getConfig()
+	if err != nil {
+		return nil, err
+	}
 	return kubernetes.NewForConfig(config)
+}
+
+// claudeTaskList is used for JSON deserialization of ClaudeTask CRs.
+type claudeTaskList struct {
+	Items []struct {
+		Metadata struct {
+			Name              string `json:"name"`
+			CreationTimestamp string `json:"creationTimestamp"`
+		} `json:"metadata"`
+		Spec struct {
+			Repo        string `json:"repo"`
+			RepoName    string `json:"repoName"`
+			IssueNumber int    `json:"issueNumber"`
+		} `json:"spec"`
+		Status struct {
+			Phase      string `json:"phase"`
+			Agent      string `json:"agent"`
+			Slot       int    `json:"slot"`
+			Attempts   int    `json:"attempts"`
+			StartedAt  string `json:"startedAt"`
+			FinishedAt string `json:"finishedAt"`
+		} `json:"status"`
+	} `json:"items"`
+}
+
+// GetClaudeTasks fetches ClaudeTask CRs and returns TUI-friendly TaskInfo structs.
+func GetClaudeTasks(ctx context.Context) ([]types.TaskInfo, error) {
+	config, err := getConfig()
+	if err != nil {
+		return nil, err
+	}
+	config.APIPath = "/apis"
+	config.GroupVersion = &schema.GroupVersion{Group: "k3sc.abix.dev", Version: "v1"}
+	config.NegotiatedSerializer = nil
+
+	rc, err := rest.UnversionedRESTClientFor(config)
+	if err != nil {
+		return nil, fmt.Errorf("rest client: %w", err)
+	}
+
+	body, err := rc.Get().
+		AbsPath("/apis/k3sc.abix.dev/v1/namespaces/" + types.Namespace + "/claudetasks").
+		DoRaw(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get claudetasks: %w", err)
+	}
+
+	var list claudeTaskList
+	if err := json.Unmarshal(body, &list); err != nil {
+		return nil, fmt.Errorf("unmarshal claudetasks: %w", err)
+	}
+
+	var result []types.TaskInfo
+	for _, item := range list.Items {
+		t := types.TaskInfo{
+			Name:     item.Metadata.Name,
+			Repo:     types.RepoByName(item.Spec.RepoName),
+			Issue:    item.Spec.IssueNumber,
+			Phase:    item.Status.Phase,
+			Agent:    item.Status.Agent,
+			Slot:     item.Status.Slot,
+			Attempts: item.Status.Attempts,
+		}
+		if item.Status.StartedAt != "" {
+			if ts, err := time.Parse(time.RFC3339, item.Status.StartedAt); err == nil {
+				t.Started = &ts
+			}
+		}
+		if item.Status.FinishedAt != "" {
+			if ts, err := time.Parse(time.RFC3339, item.Status.FinishedAt); err == nil {
+				t.Finished = &ts
+			}
+		}
+		result = append(result, t)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		oi, oj := result[i].PhaseOrder(), result[j].PhaseOrder()
+		if oi != oj {
+			return oi < oj
+		}
+		if result[i].Started == nil || result[j].Started == nil {
+			return false
+		}
+		return result[j].Started.Before(*result[i].Started)
+	})
+
+	return result, nil
 }
 
 func GetAgentPods(ctx context.Context, cs *kubernetes.Clientset) ([]types.AgentPod, error) {

@@ -22,6 +22,7 @@ type Data struct {
 	NodeName      string
 	NodeVersion   string
 	Pods          []types.AgentPod
+	Tasks         []types.TaskInfo
 	Issues        []types.Issue
 	PRs           []types.PullRequest
 	DispatcherLog string
@@ -333,6 +334,49 @@ func (m Model) renderView(maxVisiblePods int) string {
 	sections = append(sections, sep)
 	sections = append(sections, titleFg.Render(agentTitle))
 	sections = append(sections, strings.Join(agentLines, "\n"))
+
+	// -- operator tasks --
+	if len(d.Tasks) > 0 {
+		var taskLines []string
+		tRunning, tDone, tFailed, tBlocked := 0, 0, 0, 0
+		for _, t := range d.Tasks {
+			switch t.Phase {
+			case "Running", "Pending":
+				tRunning++
+			case "Succeeded":
+				tDone++
+			case "Failed":
+				tFailed++
+			case "Blocked":
+				tBlocked++
+			}
+		}
+		taskLines = append(taskLines, titleFg.Render(fmt.Sprintf(" %-7s %-10s %-10s %-11s %-16s %-10s %-3s", "Issue", "Repo", "Agent", "Phase", "Started", "Duration", "Try")))
+		maxTasks := len(d.Tasks)
+		if maxTasks > 10 {
+			maxTasks = 10
+		}
+		for _, t := range d.Tasks[:maxTasks] {
+			started := format.FmtTime(t.Started)
+			duration := format.FmtDuration(t.Started, t.Finished)
+			line := fmt.Sprintf(" %-7s %-10s %-10s %-11s %-16s %-10s %d",
+				fmt.Sprintf("#%d", t.Issue), t.Repo.Name, t.Agent, t.Phase, started, duration, t.Attempts)
+			switch t.Phase {
+			case "Running", "Pending":
+				taskLines = append(taskLines, green.Render(line))
+			case "Failed":
+				taskLines = append(taskLines, red.Render(line))
+			case "Blocked":
+				taskLines = append(taskLines, magenta.Render(line))
+			default:
+				taskLines = append(taskLines, dim.Render(line))
+			}
+		}
+		taskTitle := fmt.Sprintf(" Operator Tasks (%d running, %d done, %d failed, %d blocked)", tRunning, tDone, tFailed, tBlocked)
+		sections = append(sections, sep)
+		sections = append(sections, titleFg.Render(taskTitle))
+		sections = append(sections, strings.Join(taskLines, "\n"))
+	}
 
 	// -- live output (only if agents are running, capped to budget) --
 	if m.showLive && len(d.LiveLogs) > 0 {

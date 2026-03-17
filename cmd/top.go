@@ -74,6 +74,7 @@ type dashboard struct {
 	nodeName      string
 	nodeVersion   string
 	pods          []types.AgentPod
+	tasks         []types.TaskInfo
 	issues        []types.Issue
 	prs           []types.PullRequest
 	dispatcherLog string
@@ -85,6 +86,7 @@ func gather(cs *kubernetes.Clientset) (*dashboard, error) {
 	var (
 		nodeName, nodeVersion string
 		pods                  []types.AgentPod
+		tasks                 []types.TaskInfo
 		issues                []types.Issue
 		prs                   []types.PullRequest
 		dispLog               string
@@ -93,7 +95,7 @@ func gather(cs *kubernetes.Clientset) (*dashboard, error) {
 		errs                  []error
 	)
 
-	wg.Add(5)
+	wg.Add(6)
 	go func() {
 		defer wg.Done()
 		n, v, e := k8s.GetNodeInfo(ctx, cs)
@@ -109,6 +111,16 @@ func gather(cs *kubernetes.Clientset) (*dashboard, error) {
 		p, e := k8s.GetAgentPods(ctx, cs)
 		mu.Lock()
 		pods = p
+		if e != nil {
+			errs = append(errs, e)
+		}
+		mu.Unlock()
+	}()
+	go func() {
+		defer wg.Done()
+		t, e := k8s.GetClaudeTasks(ctx)
+		mu.Lock()
+		tasks = t
 		if e != nil {
 			errs = append(errs, e)
 		}
@@ -165,6 +177,7 @@ func gather(cs *kubernetes.Clientset) (*dashboard, error) {
 		nodeName:      nodeName,
 		nodeVersion:   nodeVersion,
 		pods:          pods,
+		tasks:         tasks,
 		issues:        issues,
 		prs:           prs,
 		dispatcherLog: dispLog,
@@ -248,6 +261,7 @@ func runTop(cmd *cobra.Command, args []string) error {
 			NodeName:      d.nodeName,
 			NodeVersion:   d.nodeVersion,
 			Pods:          d.pods,
+			Tasks:         d.tasks,
 			Issues:        d.issues,
 			PRs:           d.prs,
 			DispatcherLog: d.dispatcherLog,
@@ -307,10 +321,13 @@ func runTop(cmd *cobra.Command, args []string) error {
 		}
 		lwg.Wait()
 
+		tasks, _ := k8s.GetClaudeTasks(ctx)
+
 		return &tui.Data{
 			NodeName:      current.NodeName,
 			NodeVersion:   current.NodeVersion,
 			Pods:          pods,
+			Tasks:         tasks,
 			Issues:        current.Issues,
 			PRs:           current.PRs,
 			DispatcherLog: dispLog,
