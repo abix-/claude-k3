@@ -125,6 +125,32 @@ func runDispatchInner() (string, error) {
 		}
 	}
 
+	// report results for pods that finished since last scan
+	unreported, err := k8s.FindUnreportedFinishedPods(ctx, cs)
+	if err != nil {
+		log = append(log, fmt.Sprintf("[dispatcher] unreported pods error: %v", err))
+	} else {
+		for _, pod := range unreported {
+			lines, lerr := k8s.GetPodLogLines(ctx, cs, pod.Name, 20)
+			if lerr != nil {
+				log = append(log, fmt.Sprintf("[dispatcher] log fetch error for %s: %v", pod.Name, lerr))
+			}
+			var dur time.Duration
+			if pod.Started != nil && pod.Finished != nil {
+				dur = pod.Finished.Sub(*pod.Started)
+			}
+			agentName := types.AgentName(pod.Slot)
+			if cerr := github.PostPodResultComment(ctx, pod.Repo, pod.Issue, agentName, pod.Phase, dur, lines); cerr != nil {
+				log = append(log, fmt.Sprintf("[dispatcher] comment error for %s: %v", pod.Name, cerr))
+			} else {
+				log = append(log, fmt.Sprintf("[dispatcher] posted result comment for %s#%d (%s)", pod.Repo.Name, pod.Issue, pod.Phase))
+				if aerr := k8s.MarkPodResultReported(ctx, cs, pod.Name); aerr != nil {
+					log = append(log, fmt.Sprintf("[dispatcher] annotate error for %s: %v", pod.Name, aerr))
+				}
+			}
+		}
+	}
+
 	eligible, err := github.GetEligibleIssues(ctx)
 	if err != nil {
 		log = append(log, fmt.Sprintf("[dispatcher] github error: %v", err))

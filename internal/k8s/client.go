@@ -16,12 +16,14 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ktypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
 const (
+	PodResultReportedAnnotation        = "k3sc.abix.dev/result-reported"
 	DispatcherCronJobName              = "claude-dispatcher"
 	DispatcherDefaultSchedule          = "*/3 * * * *"
 	DispatcherHourlySchedule           = "0 * * * *"
@@ -299,6 +301,81 @@ func SetDispatcherBackoff(ctx context.Context, cs *kubernetes.Clientset, name st
 		return false, previous, err
 	}
 	return true, previous, nil
+}
+
+// FilterUnreportedFinishedPods returns pods that have finished (succeeded or failed)
+// with a non-zero issue number and are not in the reported set.
+func FilterUnreportedFinishedPods(pods []types.AgentPod, reported map[string]bool) []types.AgentPod {
+	var result []types.AgentPod
+	for _, pod := range pods {
+		if pod.Phase != types.PhaseSucceeded && pod.Phase != types.PhaseFailed {
+			continue
+		}
+		if pod.Issue == 0 {
+			continue
+		}
+		if reported[pod.Name] {
+			continue
+		}
+		result = append(result, pod)
+	}
+	return result
+}
+
+// FindUnreportedFinishedPods fetches agent pods from k8s and returns those that
+// finished but have not yet had their result posted to GitHub.
+func FindUnreportedFinishedPods(ctx context.Context, cs *kubernetes.Clientset) ([]types.AgentPod, error) {
+	rawPods, err := cs.CoreV1().Pods(types.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app=claude-agent",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	reported := map[string]bool{}
+	for _, p := range rawPods.Items {
+		if p.Annotations[PodResultReportedAnnotation] == "true" {
+			reported[p.Name] = true
+		}
+	}
+
+	var pods []types.AgentPod
+	for _, p := range rawPods.Items {
+		issue, _ := strconv.Atoi(p.Labels["issue-number"])
+		slot, _ := strconv.Atoi(p.Labels["agent-slot"])
+		phase := types.PodPhase(p.Status.Phase)
+		repo := types.RepoByName(p.Labels["repo"])
+
+		var started, finished *time.Time
+		if p.Status.StartTime != nil {
+			t := p.Status.StartTime.Time
+			started = &t
+		}
+		if len(p.Status.ContainerStatuses) > 0 {
+			if term := p.Status.ContainerStatuses[0].State.Terminated; term != nil {
+				t := term.FinishedAt.Time
+				finished = &t
+			}
+		}
+		pods = append(pods, types.AgentPod{
+			Name:     p.Name,
+			Issue:    issue,
+			Slot:     slot,
+			Phase:    phase,
+			Started:  started,
+			Finished: finished,
+			Repo:     repo,
+		})
+	}
+
+	return FilterUnreportedFinishedPods(pods, reported), nil
+}
+
+// MarkPodResultReported annotates a pod to prevent double-posting its result.
+func MarkPodResultReported(ctx context.Context, cs *kubernetes.Clientset, podName string) error {
+	patch := []byte(`{"metadata":{"annotations":{"k3sc.abix.dev/result-reported":"true"}}}`)
+	_, err := cs.CoreV1().Pods(types.Namespace).Patch(ctx, podName, ktypes.MergePatchType, patch, metav1.PatchOptions{})
+	return err
 }
 
 func GetPodLogTail(ctx context.Context, cs *kubernetes.Clientset, podName string, lines int64) (string, error) {

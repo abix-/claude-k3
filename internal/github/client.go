@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/abix-/k3sc/internal/types"
 	gh "github.com/google/go-github/v68/github"
@@ -231,6 +232,27 @@ func HasOpenPR(ctx context.Context, repo types.Repo, issueNumber int) (bool, err
 // PostComment posts a comment on a GitHub issue.
 func PostComment(ctx context.Context, repo types.Repo, issueNumber int, body string) error {
 	client := newClient(ctx)
+	_, _, err := client.Issues.CreateComment(ctx, repo.Owner, repo.Name, issueNumber, &gh.IssueComment{Body: &body})
+	return err
+}
+
+// PostPodResultComment posts a comment on a GitHub issue with the pod's result.
+func PostPodResultComment(ctx context.Context, repo types.Repo, issueNumber int, agentName string, phase types.PodPhase, duration time.Duration, logLines []string) error {
+	client := newClient(ctx)
+
+	status := "succeeded"
+	if phase == types.PhaseFailed {
+		status = "FAILED"
+	}
+
+	durStr := duration.Round(time.Second).String()
+
+	logSection := "(no logs)"
+	if len(logLines) > 0 {
+		logSection = "```\n" + strings.Join(logLines, "\n") + "\n```"
+	}
+
+	body := fmt.Sprintf("## Claude\n- Agent: %s\n- Result: %s\n- Duration: %s\n\n**Log tail:**\n%s", agentName, status, durStr, logSection)
 	_, _, err := client.Issues.CreateComment(ctx, repo.Owner, repo.Name, issueNumber, &gh.IssueComment{Body: &body})
 	return err
 }

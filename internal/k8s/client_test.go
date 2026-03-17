@@ -61,6 +61,52 @@ func TestParseUsageLimitResetTimeSameDay(t *testing.T) {
 	}
 }
 
+func TestFilterUnreportedFinishedPodsSkipsReported(t *testing.T) {
+	finished := time.Now()
+	pods := []types.AgentPod{
+		{Name: "pod-a", Issue: 10, Phase: types.PhaseSucceeded, Finished: &finished},
+		{Name: "pod-b", Issue: 11, Phase: types.PhaseFailed, Finished: &finished},
+		{Name: "pod-c", Issue: 12, Phase: types.PhaseSucceeded, Finished: &finished},
+	}
+	reported := map[string]bool{"pod-a": true}
+
+	result := FilterUnreportedFinishedPods(pods, reported)
+	if len(result) != 2 {
+		t.Fatalf("FilterUnreportedFinishedPods() = %d pods, want 2", len(result))
+	}
+	for _, p := range result {
+		if p.Name == "pod-a" {
+			t.Fatal("FilterUnreportedFinishedPods() returned already-reported pod pod-a")
+		}
+	}
+}
+
+func TestFilterUnreportedFinishedPodsSkipsRunning(t *testing.T) {
+	finished := time.Now()
+	pods := []types.AgentPod{
+		{Name: "pod-run", Issue: 10, Phase: types.PhaseRunning},
+		{Name: "pod-done", Issue: 11, Phase: types.PhaseSucceeded, Finished: &finished},
+	}
+
+	result := FilterUnreportedFinishedPods(pods, map[string]bool{})
+	if len(result) != 1 || result[0].Name != "pod-done" {
+		t.Fatalf("FilterUnreportedFinishedPods() = %v, want [pod-done]", result)
+	}
+}
+
+func TestFilterUnreportedFinishedPodsSkipsZeroIssue(t *testing.T) {
+	finished := time.Now()
+	pods := []types.AgentPod{
+		{Name: "pod-no-issue", Issue: 0, Phase: types.PhaseSucceeded, Finished: &finished},
+		{Name: "pod-has-issue", Issue: 5, Phase: types.PhaseFailed, Finished: &finished},
+	}
+
+	result := FilterUnreportedFinishedPods(pods, map[string]bool{})
+	if len(result) != 1 || result[0].Name != "pod-has-issue" {
+		t.Fatalf("FilterUnreportedFinishedPods() = %v, want [pod-has-issue]", result)
+	}
+}
+
 func TestParseUsageLimitResetTimeRollsToNextDay(t *testing.T) {
 	now := time.Date(2026, time.March, 17, 18, 0, 0, 0, time.UTC)
 	resetAt, ok := ParseUsageLimitResetTime(now, "You're out of extra usage · resets 5pm (UTC)")
