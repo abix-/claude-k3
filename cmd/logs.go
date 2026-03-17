@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/abix-/k3sc/internal/format"
 	"github.com/abix-/k3sc/internal/k8s"
 	"github.com/abix-/k3sc/internal/types"
 	"github.com/spf13/cobra"
@@ -79,7 +80,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		tail, _ := k8s.GetPodLogTail(ctx, cs, pod.Name, 20)
 		fmt.Printf("#%-6d %-12s %-10s %-11s %-16s %s\n",
 			pod.Issue, pod.Repo.Name, agent, pod.Phase.Display(),
-			fmtTime(pod.Started), tail)
+			format.FmtTime(pod.Started), tail)
 	}
 	return nil
 }

@@ -6,12 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abix-/k3sc/internal/format"
 	"github.com/abix-/k3sc/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
-
-var loc, _ = time.LoadLocation("America/New_York")
 
 type LiveLog struct {
 	Issue int
@@ -223,7 +222,7 @@ func (m Model) renderView(maxVisiblePods int) string {
 		w = 120
 	}
 
-	running, completed, failed := countPhases(d.Pods)
+	running, completed, failed := format.CountPhases(d.Pods)
 	maxLivePerAgent := 6
 
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
@@ -269,7 +268,7 @@ func (m Model) renderView(maxVisiblePods int) string {
 		issueLines = append(issueLines, titleFg.Render(fmt.Sprintf(" %-7s %-12s %-14s %-10s Title", "Issue", "Repo", "State", "Owner")))
 		maxIssues := min(len(d.Issues), 10)
 		for _, i := range d.Issues[:maxIssues] {
-			line := fmt.Sprintf(" %s %-12s %-14s %-10s %s", issueLink(i.Repo, i.Number), i.Repo.Name, i.State, i.Owner, truncate(i.Title, w-52))
+			line := fmt.Sprintf(" %s %-12s %-14s %-10s %s", format.IssueLink(i.Repo, i.Number), i.Repo.Name, i.State, i.Owner, format.Truncate(i.Title, w-52))
 			switch i.State {
 			case "claimed":
 				issueLines = append(issueLines, yellow.Render(line))
@@ -315,11 +314,11 @@ func (m Model) renderView(maxVisiblePods int) string {
 		}
 		for _, pod := range visiblePods {
 			agent := types.AgentName(pod.Slot)
-			started := fmtTime(pod.Started)
-			duration := fmtDuration(pod.Started, pod.Finished)
-			tail := truncate(pod.LogTail, w-65)
+			started := format.FmtTime(pod.Started)
+			duration := format.FmtDuration(pod.Started, pod.Finished)
+			tail := format.Truncate(pod.LogTail, w-65)
 			line := fmt.Sprintf(" %s %-10s %-11s %-16s %-10s %s",
-				issueLink(pod.Repo, pod.Issue), agent, pod.Phase.Display(), started, duration, tail)
+				format.IssueLink(pod.Repo, pod.Issue), agent, pod.Phase.Display(), started, duration, tail)
 			switch pod.Phase {
 			case types.PhaseRunning, types.PhasePending:
 				agentLines = append(agentLines, green.Render(line))
@@ -345,7 +344,7 @@ func (m Model) renderView(maxVisiblePods int) string {
 				visibleLogLines = visibleLogLines[len(visibleLogLines)-maxLivePerAgent:]
 			}
 			for _, line := range visibleLogLines {
-				liveLines = append(liveLines, green.Render("  "+truncate(line, w-6)))
+				liveLines = append(liveLines, green.Render("  "+format.Truncate(line, w-6)))
 			}
 		}
 		sections = append(sections, sep)
@@ -361,12 +360,12 @@ func (m Model) renderView(maxVisiblePods int) string {
 		prLines = append(prLines, titleFg.Render(fmt.Sprintf(" %-3s %-7s %-12s %-7s %-20s Title", "#", "PR", "Repo", "Issue", "Branch")))
 		maxPRs := min(len(d.PRs), 6)
 		for idx, pr := range d.PRs[:maxPRs] {
-			pl := prLink(pr.Repo, pr.Number)
+			pl := format.PRLink(pr.Repo, pr.Number)
 			issueRef := "       "
 			if pr.Issue > 0 {
-				issueRef = issueLink(pr.Repo, pr.Issue)
+				issueRef = format.IssueLink(pr.Repo, pr.Issue)
 			}
-			line := fmt.Sprintf(" %-3d %s %-12s %-7s %-20s %s", idx+1, pl, pr.Repo.Name, issueRef, truncate(pr.Branch, 20), truncate(pr.Title, w-61))
+			line := fmt.Sprintf(" %-3d %s %-12s %-7s %-20s %s", idx+1, pl, pr.Repo.Name, issueRef, format.Truncate(pr.Branch, 20), format.Truncate(pr.Title, w-61))
 			prLines = append(prLines, cyan.Render(line))
 		}
 	}
@@ -382,7 +381,7 @@ func (m Model) renderView(maxVisiblePods int) string {
 			errSection = append(errSection, dim.Render("  (no errors)"))
 		} else {
 			for _, line := range errLines {
-				errSection = append(errSection, red.Render("  "+truncate(line, w-4)))
+				errSection = append(errSection, red.Render("  "+format.Truncate(line, w-4)))
 			}
 		}
 		sections = append(sections, sep)
@@ -399,71 +398,8 @@ func (m Model) renderView(maxVisiblePods int) string {
 	return strings.Join(sections, "\n")
 }
 
-func fmtTime(t *time.Time) string {
-	if t == nil {
-		return ""
-	}
-	return t.In(loc).Format("3:04 PM MST")
-}
-
-func fmtDuration(start, end *time.Time) string {
-	if start == nil {
-		return ""
-	}
-	e := time.Now()
-	if end != nil {
-		e = *end
-	}
-	d := e.Sub(*start)
-	return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
-}
-
-func countPhases(pods []types.AgentPod) (running, completed, failed int) {
-	for _, p := range pods {
-		switch p.Phase {
-		case types.PhaseRunning, types.PhasePending:
-			running++
-		case types.PhaseSucceeded:
-			completed++
-		case types.PhaseFailed:
-			failed++
-		}
-	}
-	return
-}
-
-func issueLink(repo types.Repo, number int) string {
-	url := fmt.Sprintf("https://github.com/%s/%s/issues/%d", repo.Owner, repo.Name, number)
-	text := fmt.Sprintf("#%d", number)
-	link := fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
-	if len(text) < 7 {
-		link += strings.Repeat(" ", 7-len(text))
-	}
-	return link
-}
-
-func prLink(repo types.Repo, number int) string {
-	url := fmt.Sprintf("https://github.com/%s/%s/pull/%d", repo.Owner, repo.Name, number)
-	text := fmt.Sprintf("#%d", number)
-	link := fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
-	if len(text) < 7 {
-		link += strings.Repeat(" ", 7-len(text))
-	}
-	return link
-}
-
 func copyToClipboard(s string) {
 	c := exec.Command("clip")
 	c.Stdin = strings.NewReader(s)
 	c.Run()
-}
-
-func truncate(s string, max int) string {
-	if max < 4 {
-		max = 4
-	}
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-3] + "..."
 }
