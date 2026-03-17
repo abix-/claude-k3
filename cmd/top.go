@@ -148,7 +148,18 @@ func printDashboard(d *dashboard) {
 	fmt.Println("=== CLUSTER ===")
 	fmt.Printf("Node: %s Ready %s\n\n", d.nodeName, d.nodeVersion)
 
-	// 1. Issues
+	// 1. Dispatcher
+	fmt.Println("=== DISPATCHER ===")
+	if d.dispatcherLog == "" {
+		fmt.Println("  (no dispatcher runs found)")
+	} else {
+		for _, line := range splitLines(d.dispatcherLog) {
+			fmt.Printf("  %s\n", line)
+		}
+	}
+	fmt.Println()
+
+	// 2. Issues
 	fmt.Println("=== GITHUB ISSUES ===")
 	if len(d.issues) == 0 {
 		fmt.Println("  (no issues with workflow labels)")
@@ -156,17 +167,6 @@ func printDashboard(d *dashboard) {
 		fmt.Printf("%-7s %-14s %-10s Title\n", "Issue", "State", "Owner")
 		for _, i := range d.issues {
 			fmt.Printf("#%-6d %-14s %-10s %s\n", i.Number, i.State, i.Owner, i.Title)
-		}
-	}
-	fmt.Println()
-
-	// 2. Dispatcher
-	fmt.Println("=== DISPATCHER ===")
-	if d.dispatcherLog == "" {
-		fmt.Println("  (no dispatcher runs found)")
-	} else {
-		for _, line := range splitLines(d.dispatcherLog) {
-			fmt.Printf("  %s\n", line)
 		}
 	}
 	fmt.Println()

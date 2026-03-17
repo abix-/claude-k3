@@ -157,6 +157,18 @@ func (m Model) View() string {
 		titleFg.Render(" Cluster") + "\n" + clusterContent)
 	sections = append(sections, clusterBox)
 
+	// -- dispatcher --
+	var dispLines []string
+	if d.DispatcherLog == "" {
+		dispLines = append(dispLines, dim.Render("  (no dispatcher runs found)"))
+	} else {
+		for _, line := range strings.Split(strings.TrimSpace(d.DispatcherLog), "\n") {
+			dispLines = append(dispLines, dim.Render("  "+line))
+		}
+	}
+	dispBox := border.Render(titleFg.Render(" Dispatcher (last run)") + "\n" + strings.Join(dispLines, "\n"))
+	sections = append(sections, dispBox)
+
 	// -- issues --
 	var issueLines []string
 	if len(d.Issues) == 0 {
@@ -181,18 +193,6 @@ func (m Model) View() string {
 	}
 	issueBox := border.Render(titleFg.Render(" GitHub Issues") + "\n" + strings.Join(issueLines, "\n"))
 	sections = append(sections, issueBox)
-
-	// -- dispatcher --
-	var dispLines []string
-	if d.DispatcherLog == "" {
-		dispLines = append(dispLines, dim.Render("  (no dispatcher runs found)"))
-	} else {
-		for _, line := range strings.Split(strings.TrimSpace(d.DispatcherLog), "\n") {
-			dispLines = append(dispLines, dim.Render("  "+line))
-		}
-	}
-	dispBox := border.Render(titleFg.Render(" Dispatcher (last run)") + "\n" + strings.Join(dispLines, "\n"))
-	sections = append(sections, dispBox)
 
 	// -- agents --
 	var agentLines []string
