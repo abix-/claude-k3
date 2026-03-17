@@ -8,3 +8,4 @@ secret-values.yaml
 
 /target
 target/
+image/k3s-claude

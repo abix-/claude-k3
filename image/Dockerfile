@@ -41,6 +41,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 COPY cargo-lock-linux.py /usr/local/bin/cargo-lock.py
 RUN chmod +x /usr/local/bin/cargo-lock.py
 
+# k3s-claude binary (pre-built for linux)
+COPY k3s-claude /usr/local/bin/k3s-claude
+RUN chmod +x /usr/local/bin/k3s-claude
+
 # entrypoint
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
