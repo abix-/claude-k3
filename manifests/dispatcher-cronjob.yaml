@@ -20,7 +20,7 @@ spec:
             - name: dispatcher
               image: claude-agent:latest
               imagePullPolicy: Never
-              command: ["/usr/local/bin/k3s-claude", "dispatch"]
+              command: ["/usr/local/bin/claude-k3", "dispatch"]
               env:
                 - name: GITHUB_TOKEN
                   valueFrom:

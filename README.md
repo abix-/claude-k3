@@ -1,4 +1,4 @@
-# k3s-claude
+# claude-k3
 
 Go CLI that orchestrates [Claude Code](https://docs.anthropic.com/en/docs/claude-code) agents as Kubernetes jobs on k3s. A dispatcher watches GitHub issues across multiple repos, claims eligible ones, and spins up pods that autonomously implement, review, and hand off work.
 
@@ -21,7 +21,7 @@ GitHub Issues (ready/needs-review labels)
         +-- pushes branch, creates PR, hands off via labels
 ```
 
-The dispatcher scans all configured repos (currently `abix-/endless` and `abix-/k3s-claude`) for open issues with workflow labels (`ready`, `needs-review`). It assigns each to a free slot and creates a k8s Job from a template.
+The dispatcher scans all configured repos (currently `abix-/endless` and `abix-/claude-k3`) for open issues with workflow labels (`ready`, `needs-review`). It assigns each to a free slot and creates a k8s Job from a template.
 
 Each agent pod gets a letter-based identity (claude-a, claude-b, ..., claude-z) and its own workspace on a shared PVC.
 
@@ -29,13 +29,13 @@ Each agent pod gets a letter-based identity (claude-a, claude-b, ..., claude-z) 
 
 | Command | Description |
 |---------|-------------|
-| `k3s-claude top` | Live TUI dashboard -- agents, issues, PRs, dispatcher logs |
-| `k3s-claude top --once` | One-shot text output |
-| `k3s-claude dispatch` | Scan GitHub, create jobs for eligible issues |
-| `k3s-claude logs [issue]` | View agent pod logs (summary or per-issue) |
-| `k3s-claude logs -f [issue]` | Follow logs live |
-| `k3s-claude deploy` | Build container image and apply k8s manifests |
-| `k3s-claude cargo-lock [args]` | Serialize cargo builds with a file lock |
+| `claude-k3 top` | Live TUI dashboard -- agents, issues, PRs, dispatcher logs |
+| `claude-k3 top --once` | One-shot text output |
+| `claude-k3 dispatch` | Scan GitHub, create jobs for eligible issues |
+| `claude-k3 logs [issue]` | View agent pod logs (summary or per-issue) |
+| `claude-k3 logs -f [issue]` | Follow logs live |
+| `claude-k3 deploy` | Build container image and apply k8s manifests |
+| `claude-k3 cargo-lock [args]` | Serialize cargo builds with a file lock |
 
 ## TUI
 
@@ -45,7 +45,7 @@ The `top` command provides a live dashboard with sections for cluster status, di
 
 ## Architecture
 
-- **Dispatcher**: k8s CronJob running `k3s-claude dispatch` inside the same container image
+- **Dispatcher**: k8s CronJob running `claude-k3 dispatch` inside the same container image
 - **Agent pods**: Ubuntu 24.04 with Node.js, Claude Code CLI, Rust toolchain, gh CLI, kubectl
 - **Shared PVCs**: `workspaces` (git clones), `cargo-target` (build artifacts), `cargo-home` (crate registry)
 - **Host mounts**: Claude skills, commands, docs, and CLAUDE.md mounted read-only from the host
@@ -75,11 +75,11 @@ The dispatcher only picks up `ready` and `needs-review` issues (prioritizing `ne
 
 ```bash
 # build CLI
-cd /c/code/k3s-claude
-go build -o k3s-claude.exe .
+cd /c/code/claude-k3
+go build -o claude-k3.exe .
 
 # cross-compile linux binary for container
-GOOS=linux GOARCH=amd64 go build -o image/k3s-claude .
+GOOS=linux GOARCH=amd64 go build -o image/claude-k3 .
 
 # create namespace + secrets (one-time)
 sudo k3s kubectl apply -f manifests/namespace.yaml
@@ -88,10 +88,10 @@ sudo k3s kubectl create secret generic claude-secrets -n claude-agents \
   --from-literal=GITHUB_TOKEN=<token>
 
 # deploy (builds image, applies manifests)
-k3s-claude deploy
+claude-k3 deploy
 
 # check status
-k3s-claude top
+claude-k3 top
 ```
 
 ## Project structure

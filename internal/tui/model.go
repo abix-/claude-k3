@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abix-/k3s-claude/internal/types"
+	"github.com/abix-/claude-k3/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )

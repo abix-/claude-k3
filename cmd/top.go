@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/abix-/k3s-claude/internal/github"
-	"github.com/abix-/k3s-claude/internal/k8s"
-	"github.com/abix-/k3s-claude/internal/tui"
-	"github.com/abix-/k3s-claude/internal/types"
+	"github.com/abix-/claude-k3/internal/github"
+	"github.com/abix-/claude-k3/internal/k8s"
+	"github.com/abix-/claude-k3/internal/tui"
+	"github.com/abix-/claude-k3/internal/types"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )

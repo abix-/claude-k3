@@ -1,4 +1,4 @@
-module github.com/abix-/k3s-claude
+module github.com/abix-/claude-k3
 
 go 1.25.6
 

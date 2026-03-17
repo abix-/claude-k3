@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abix-/k3s-claude/internal/github"
-	"github.com/abix-/k3s-claude/internal/k8s"
+	"github.com/abix-/claude-k3/internal/github"
+	"github.com/abix-/claude-k3/internal/k8s"
 	"github.com/spf13/cobra"
 )
 

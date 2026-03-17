@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/abix-/k3s-claude/internal/k8s"
-	"github.com/abix-/k3s-claude/internal/types"
+	"github.com/abix-/claude-k3/internal/k8s"
+	"github.com/abix-/claude-k3/internal/types"
 	"github.com/spf13/cobra"
 )
 
