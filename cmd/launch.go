@@ -97,11 +97,9 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// write lockfile with our PID (claude will inherit it)
+	// launch claude detached -- k3sc exits immediately, stale lock cleanup handles the rest
 	lockPath := filepath.Join(dir, lockFile)
 
-	// launch claude interactively
-	fmt.Printf("launching claude in %s\n", dir)
 	c := exec.Command("claude")
 	c.Dir = dir
 	c.Stdin = os.Stdin
@@ -112,13 +110,7 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// write claude's PID to lockfile
 	os.WriteFile(lockPath, []byte(strconv.Itoa(c.Process.Pid)), 0o644)
-
-	err = c.Wait()
-
-	// cleanup lock
-	os.Remove(lockPath)
-
-	return err
+	c.Process.Release()
+	return nil
 }
