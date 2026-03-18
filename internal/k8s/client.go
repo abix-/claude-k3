@@ -58,8 +58,8 @@ func NewClient() (*kubernetes.Clientset, error) {
 	return kubernetes.NewForConfig(config)
 }
 
-// claudeTaskList is used for JSON deserialization of ClaudeTask CRs.
-type claudeTaskList struct {
+// agentJobList is used for JSON deserialization of AgentJob CRs.
+type agentJobList struct {
 	Items []struct {
 		Metadata struct {
 			Name              string `json:"name"`
@@ -81,8 +81,8 @@ type claudeTaskList struct {
 	} `json:"items"`
 }
 
-// GetClaudeTasks fetches ClaudeTask CRs and returns TUI-friendly TaskInfo structs.
-func GetClaudeTasks(ctx context.Context) ([]types.TaskInfo, error) {
+// GetAgentJobs fetches AgentJob CRs and returns TUI-friendly TaskInfo structs.
+func GetAgentJobs(ctx context.Context) ([]types.TaskInfo, error) {
 	config, err := getConfig()
 	if err != nil {
 		return nil, err
@@ -97,15 +97,15 @@ func GetClaudeTasks(ctx context.Context) ([]types.TaskInfo, error) {
 	}
 
 	body, err := rc.Get().
-		AbsPath("/apis/k3sc.abix.dev/v1/namespaces/" + types.Namespace + "/claudetasks").
+		AbsPath("/apis/k3sc.abix.dev/v1/namespaces/" + types.Namespace + "/agentjobs").
 		DoRaw(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("get claudetasks: %w", err)
+		return nil, fmt.Errorf("get agentjobs: %w", err)
 	}
 
-	var list claudeTaskList
+	var list agentJobList
 	if err := json.Unmarshal(body, &list); err != nil {
-		return nil, fmt.Errorf("unmarshal claudetasks: %w", err)
+		return nil, fmt.Errorf("unmarshal agentjobs: %w", err)
 	}
 
 	var result []types.TaskInfo

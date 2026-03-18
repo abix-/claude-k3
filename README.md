@@ -11,7 +11,7 @@ GitHub Issues (ready/needs-review labels)
         |
    [operator + scanner goroutine]
         |
-   creates ClaudeTask CRs -> reconciler creates k8s Jobs
+   creates AgentJob CRs -> reconciler creates k8s Jobs
         |
    [claude-agent pod]
         |
@@ -21,7 +21,7 @@ GitHub Issues (ready/needs-review labels)
         +-- pushes branch, creates PR, hands off via labels
 ```
 
-The scanner polls all configured repos for open issues with workflow labels (`ready`, `needs-review`). It assigns each to a free slot and creates a ClaudeTask CR, which the reconciler picks up to claim the issue on GitHub and create a k8s Job. When idle, the scanner backs off exponentially (2min -> 1hr cap) to minimize GitHub API usage.
+The scanner polls all configured repos for open issues with workflow labels (`ready`, `needs-review`). It assigns each to a free slot and creates a AgentJob CR, which the reconciler picks up to claim the issue on GitHub and create a k8s Job. When idle, the scanner backs off exponentially (2min -> 1hr cap) to minimize GitHub API usage.
 
 Each agent pod gets a letter-based identity (claude-a, claude-b, ..., claude-z) and its own workspace on a shared PVC.
 

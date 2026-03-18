@@ -28,7 +28,7 @@ type Reconciler struct {
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var task ClaudeTask
+	var task AgentJob
 	if err := r.Get(ctx, req.NamespacedName, &task); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -57,7 +57,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) handlePending(ctx context.Context, task *ClaudeTask) (ctrl.Result, error) {
+func (r *Reconciler) handlePending(ctx context.Context, task *AgentJob) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	// slot and agent are pre-assigned by the scanner in the spec
@@ -69,7 +69,7 @@ func (r *Reconciler) handlePending(ctx context.Context, task *ClaudeTask) (ctrl.
 	return ctrl.Result{Requeue: true}, r.Status().Update(ctx, task)
 }
 
-func (r *Reconciler) handleAssigned(ctx context.Context, task *ClaudeTask) (ctrl.Result, error) {
+func (r *Reconciler) handleAssigned(ctx context.Context, task *AgentJob) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	repo := dispatch.RepoFromString(task.Spec.Repo)
 
@@ -93,7 +93,7 @@ func (r *Reconciler) handleAssigned(ctx context.Context, task *ClaudeTask) (ctrl
 	return ctrl.Result{}, r.Status().Update(ctx, task)
 }
 
-func (r *Reconciler) handleRunning(ctx context.Context, task *ClaudeTask) (ctrl.Result, error) {
+func (r *Reconciler) handleRunning(ctx context.Context, task *AgentJob) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	jobs, err := r.K8s.BatchV1().Jobs(types.Namespace).List(ctx, metav1.ListOptions{
@@ -142,7 +142,7 @@ func (r *Reconciler) handleRunning(ctx context.Context, task *ClaudeTask) (ctrl.
 }
 
 // handleCompleted runs once: posts result comment, syncs labels, marks reported.
-func (r *Reconciler) handleCompleted(ctx context.Context, task *ClaudeTask) (ctrl.Result, error) {
+func (r *Reconciler) handleCompleted(ctx context.Context, task *AgentJob) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	repo := dispatch.RepoFromString(task.Spec.Repo)
 	succeeded := task.Status.Phase == TaskPhaseSucceeded
@@ -193,7 +193,7 @@ func (r *Reconciler) handleCompleted(ctx context.Context, task *ClaudeTask) (ctr
 	return ctrl.Result{}, r.Status().Update(ctx, task)
 }
 
-func (r *Reconciler) captureLogTail(ctx context.Context, task *ClaudeTask) {
+func (r *Reconciler) captureLogTail(ctx context.Context, task *AgentJob) {
 	podName, _ := k8s.FindPodForIssue(ctx, r.K8s, task.Spec.IssueNumber)
 	if podName != "" {
 		tail, _ := k8s.GetPodLogTail(ctx, r.K8s, podName, 20)
@@ -212,6 +212,6 @@ func isJobDead(job *batchv1.Job) bool {
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&ClaudeTask{}).
+		For(&AgentJob{}).
 		Complete(r)
 }

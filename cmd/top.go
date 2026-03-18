@@ -118,7 +118,7 @@ func gather(cs *kubernetes.Clientset) (*dashboard, error) {
 	}()
 	go func() {
 		defer wg.Done()
-		t, e := k8s.GetClaudeTasks(ctx)
+		t, e := k8s.GetAgentJobs(ctx)
 		mu.Lock()
 		tasks = t
 		if e != nil {
@@ -321,7 +321,7 @@ func runTop(cmd *cobra.Command, args []string) error {
 		}
 		lwg.Wait()
 
-		tasks, _ := k8s.GetClaudeTasks(ctx)
+		tasks, _ := k8s.GetAgentJobs(ctx)
 
 		return &tui.Data{
 			NodeName:      current.NodeName,

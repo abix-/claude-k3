@@ -64,7 +64,7 @@ func scan(ctx context.Context, c client.Client, namespace string) bool {
 		return false
 	}
 
-	var existing ClaudeTaskList
+	var existing AgentJobList
 	if err := c.List(ctx, &existing, client.InNamespace(namespace)); err != nil {
 		fmt.Printf("[scanner] list tasks error: %v\n", err)
 		return false
@@ -108,16 +108,16 @@ func scan(ctx context.Context, c client.Client, namespace string) bool {
 		ts := time.Now().Unix()
 		name := fmt.Sprintf("%s-%d-%d", strings.ReplaceAll(issue.Repo.Name, "/", "-"), issue.Number, ts)
 
-		task := &ClaudeTask{
+		task := &AgentJob{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: GroupVersion.String(),
-				Kind:       "ClaudeTask",
+				Kind:       "AgentJob",
 			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: namespace,
 			},
-			Spec: ClaudeTaskSpec{
+			Spec: AgentJobSpec{
 				Repo:        fmt.Sprintf("%s/%s", issue.Repo.Owner, issue.Repo.Name),
 				RepoName:    issue.Repo.Name,
 				IssueNumber: issue.Number,
@@ -126,7 +126,7 @@ func scan(ctx context.Context, c client.Client, namespace string) bool {
 				Agent:       agent,
 				OriginState: issue.State,
 			},
-			Status: ClaudeTaskStatus{
+			Status: AgentJobStatus{
 				Phase: TaskPhasePending,
 			},
 		}

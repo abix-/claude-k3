@@ -84,7 +84,7 @@ func RepoByName(name string) Repo {
 	return Repos[0]
 }
 
-// TaskInfo is a TUI-friendly view of a ClaudeTask CR.
+// TaskInfo is a TUI-friendly view of an AgentJob CR.
 type TaskInfo struct {
 	Name     string
 	Repo     Repo

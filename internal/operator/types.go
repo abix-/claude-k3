@@ -14,23 +14,23 @@ var (
 
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(GroupVersion,
-		&ClaudeTask{},
-		&ClaudeTaskList{},
+		&AgentJob{},
+		&AgentJobList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil
 }
 
-// ClaudeTask represents one execution of work on a GitHub issue.
-// Multiple ClaudeTasks can exist for the same issue (execution history).
-type ClaudeTask struct {
+// AgentJob represents one execution of work on a GitHub issue.
+// Multiple AgentJobs can exist for the same issue (execution history).
+type AgentJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              ClaudeTaskSpec   `json:"spec"`
-	Status            ClaudeTaskStatus `json:"status,omitempty"`
+	Spec              AgentJobSpec   `json:"spec"`
+	Status            AgentJobStatus `json:"status,omitempty"`
 }
 
-type ClaudeTaskSpec struct {
+type AgentJobSpec struct {
 	Repo        string `json:"repo"`        // e.g. "abix-/endless"
 	RepoName    string `json:"repoName"`    // e.g. "endless"
 	IssueNumber int    `json:"issueNumber"`
@@ -55,7 +55,7 @@ func IsTerminal(phase TaskPhase) bool {
 	return phase == TaskPhaseSucceeded || phase == TaskPhaseFailed || phase == TaskPhaseBlocked
 }
 
-type ClaudeTaskStatus struct {
+type AgentJobStatus struct {
 	Phase     TaskPhase    `json:"phase,omitempty"`
 	Agent     string       `json:"agent,omitempty"`
 	Slot      int          `json:"slot,omitempty"`
@@ -68,16 +68,16 @@ type ClaudeTaskStatus struct {
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
 }
 
-// ClaudeTaskList contains a list of ClaudeTasks.
-type ClaudeTaskList struct {
+// AgentJobList contains a list of AgentJobs.
+type AgentJobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ClaudeTask `json:"items"`
+	Items           []AgentJob `json:"items"`
 }
 
 // DeepCopyObject implementations for runtime.Object interface.
-func (in *ClaudeTask) DeepCopyObject() runtime.Object {
-	out := new(ClaudeTask)
+func (in *AgentJob) DeepCopyObject() runtime.Object {
+	out := new(AgentJob)
 	*out = *in
 	out.ObjectMeta = *in.ObjectMeta.DeepCopy()
 	if in.Status.StartedAt != nil {
@@ -91,14 +91,14 @@ func (in *ClaudeTask) DeepCopyObject() runtime.Object {
 	return out
 }
 
-func (in *ClaudeTaskList) DeepCopyObject() runtime.Object {
-	out := new(ClaudeTaskList)
+func (in *AgentJobList) DeepCopyObject() runtime.Object {
+	out := new(AgentJobList)
 	out.TypeMeta = in.TypeMeta
 	out.ListMeta = *in.ListMeta.DeepCopy()
 	if in.Items != nil {
-		out.Items = make([]ClaudeTask, len(in.Items))
+		out.Items = make([]AgentJob, len(in.Items))
 		for i := range in.Items {
-			out.Items[i] = *in.Items[i].DeepCopyObject().(*ClaudeTask)
+			out.Items[i] = *in.Items[i].DeepCopyObject().(*AgentJob)
 		}
 	}
 	return out
