@@ -17,11 +17,17 @@ import (
 
 const MaxFailures = 3
 
+// Verbose enables full structured logging from controller-runtime.
+// Set via --verbose flag on the operator command.
+var Verbose bool
+
 var edt = time.FixedZone("EDT", -4*3600)
 
-func slog(format string, args ...any) {
+// olog prints a concise timestamped log line: "18:27:22 [prefix] message"
+func olog(prefix, format string, args ...any) {
 	t := time.Now().In(edt).Format("15:04:05")
-	fmt.Printf("%s [scanner] "+format+"\n", append([]any{t}, args...)...)
+	msg := fmt.Sprintf(format, args...)
+	fmt.Printf("%s [%s] %s\n", t, prefix, msg)
 }
 
 func Scanner(ctx context.Context, c client.Client, namespace string) {
@@ -50,7 +56,7 @@ func Scanner(ctx context.Context, c client.Client, namespace string) {
 			} else {
 				interval = nextBackoff(interval, maxInterval)
 			}
-			slog("next scan in %s", interval)
+			olog("scanner","next scan in %s", interval)
 			timer.Reset(interval)
 		}
 	}
@@ -67,13 +73,13 @@ func nextBackoff(current, max time.Duration) time.Duration {
 func scan(ctx context.Context, c client.Client, namespace string) bool {
 	eligible, err := github.GetEligibleIssues(ctx)
 	if err != nil {
-		slog("github error: %v", err)
+		olog("scanner","github error: %v", err)
 		return false
 	}
 
 	var existing AgentJobList
 	if err := c.List(ctx, &existing, client.InNamespace(namespace)); err != nil {
-		slog("list tasks error: %v", err)
+		olog("scanner","list tasks error: %v", err)
 		return false
 	}
 
@@ -101,13 +107,13 @@ func scan(ctx context.Context, c client.Client, namespace string) bool {
 			continue
 		}
 		if failCounts[key] >= MaxFailures {
-			slog("%s blocked after %d failures", key, failCounts[key])
+			olog("scanner","%s blocked after %d failures", key, failCounts[key])
 			continue
 		}
 
 		slot := dispatch.FindFreeSlotFromList(usedSlots, maxSlots)
 		if slot == -1 {
-			slog("no free slots")
+			olog("scanner","no free slots")
 			break
 		}
 
@@ -139,10 +145,10 @@ func scan(ctx context.Context, c client.Client, namespace string) bool {
 		}
 
 		if err := c.Create(ctx, task); err != nil {
-			slog("create %s: %v", name, err)
+			olog("scanner","create %s: %v", name, err)
 			continue
 		}
-		slog("created %s (slot %d, %s)", name, slot, agent)
+		olog("scanner","created %s (slot %d, %s)", name, slot, agent)
 
 		// update in-memory state so next iteration sees this slot as used
 		usedSlots = append(usedSlots, slot)
@@ -157,9 +163,9 @@ func scan(ctx context.Context, c client.Client, namespace string) bool {
 		}
 		if time.Since(t.CreationTimestamp.Time) > config.C.Scan.TaskTTL.Duration {
 			if err := c.Delete(ctx, t); err != nil {
-				slog("cleanup %s: %v", t.Name, err)
+				olog("scanner","cleanup %s: %v", t.Name, err)
 			} else {
-				slog("cleaned up %s", t.Name)
+				olog("scanner","cleaned up %s", t.Name)
 			}
 		}
 	}

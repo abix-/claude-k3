@@ -26,8 +26,6 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	var task AgentJob
 	if err := r.Get(ctx, req.NamespacedName, &task); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -52,35 +50,47 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// terminal
 	}
 
-	// terminal states with Reported=true -- nothing to do
-	logger.V(1).Info("task terminal", "issue", task.Spec.IssueNumber, "phase", task.Status.Phase)
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) handlePending(ctx context.Context, task *AgentJob) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
+func (r *Reconciler) logf(ctx context.Context, task *AgentJob, format string, args ...any) {
+	if Verbose {
+		logger := log.FromContext(ctx)
+		logger.Info(fmt.Sprintf(format, args...), "issue", task.Spec.IssueNumber, "agent", task.Status.Agent)
+	} else {
+		olog("operator", "#%d %s", task.Spec.IssueNumber, fmt.Sprintf(format, args...))
+	}
+}
 
-	// slot and agent are pre-assigned by the scanner in the spec
+func (r *Reconciler) errf(ctx context.Context, err error, task *AgentJob, format string, args ...any) {
+	if Verbose {
+		logger := log.FromContext(ctx)
+		logger.Error(err, fmt.Sprintf(format, args...), "issue", task.Spec.IssueNumber)
+	} else {
+		olog("operator", "#%d %s: %v", task.Spec.IssueNumber, fmt.Sprintf(format, args...), err)
+	}
+}
+
+func (r *Reconciler) handlePending(ctx context.Context, task *AgentJob) (ctrl.Result, error) {
 	task.Status.Phase = TaskPhaseAssigned
 	task.Status.Agent = task.Spec.Agent
 	task.Status.Slot = task.Spec.Slot
 
-	logger.Info("assigned", "issue", task.Spec.IssueNumber, "agent", task.Spec.Agent, "slot", task.Spec.Slot)
+	r.logf(ctx, task, "assigned %s slot %d", task.Spec.Agent, task.Spec.Slot)
 	return ctrl.Result{Requeue: true}, r.Status().Update(ctx, task)
 }
 
 func (r *Reconciler) handleAssigned(ctx context.Context, task *AgentJob) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
 	repo := dispatch.RepoFromString(task.Spec.Repo)
 
 	if err := github.ClaimIssue(ctx, repo, task.Spec.IssueNumber, task.Status.Agent); err != nil {
-		logger.Error(err, "failed to claim issue", "issue", task.Spec.IssueNumber)
+		r.errf(ctx, err, task, "claim failed")
 		return ctrl.Result{RequeueAfter: RequeueDelay}, nil
 	}
 
 	jobName, err := k8s.CreateJobFromTemplate(ctx, r.K8s, r.Template, task.Spec.IssueNumber, task.Status.Slot, task.Spec.RepoURL)
 	if err != nil {
-		logger.Error(err, "failed to create job", "issue", task.Spec.IssueNumber)
+		r.errf(ctx, err, task, "create job failed")
 		return ctrl.Result{RequeueAfter: RequeueDelay}, err
 	}
 
@@ -89,13 +99,11 @@ func (r *Reconciler) handleAssigned(ctx context.Context, task *AgentJob) (ctrl.R
 	task.Status.JobName = jobName
 	task.Status.StartedAt = &now
 
-	logger.Info("dispatched", "issue", task.Spec.IssueNumber, "agent", task.Status.Agent, "job", jobName)
+	r.logf(ctx, task, "dispatched %s -> %s", task.Status.Agent, jobName)
 	return ctrl.Result{}, r.Status().Update(ctx, task)
 }
 
 func (r *Reconciler) handleRunning(ctx context.Context, task *AgentJob) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	jobs, err := r.K8s.BatchV1().Jobs(types.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("app=claude-agent,issue-number=%d", task.Spec.IssueNumber),
 	})
@@ -108,7 +116,7 @@ func (r *Reconciler) handleRunning(ctx context.Context, task *AgentJob) (ctrl.Re
 		task.Status.Phase = TaskPhaseFailed
 		task.Status.FinishedAt = &now
 		task.Status.LastError = "job disappeared"
-		logger.Info("job disappeared", "issue", task.Spec.IssueNumber)
+		r.logf(ctx, task, "job disappeared")
 		return ctrl.Result{}, r.Status().Update(ctx, task)
 	}
 
@@ -124,7 +132,6 @@ func (r *Reconciler) handleRunning(ctx context.Context, task *AgentJob) (ctrl.Re
 		task.Status.Phase = TaskPhaseSucceeded
 		task.Status.FinishedAt = &now
 		r.captureLogTail(ctx, task)
-		logger.Info("task succeeded", "issue", task.Spec.IssueNumber)
 		return ctrl.Result{}, r.Status().Update(ctx, task)
 	}
 
@@ -134,20 +141,16 @@ func (r *Reconciler) handleRunning(ctx context.Context, task *AgentJob) (ctrl.Re
 		task.Status.FinishedAt = &now
 		task.Status.LastError = "pod failed"
 		r.captureLogTail(ctx, task)
-		logger.Info("task failed", "issue", task.Spec.IssueNumber)
 		return ctrl.Result{}, r.Status().Update(ctx, task)
 	}
 
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
-// handleCompleted runs once: posts result comment, syncs labels, marks reported.
 func (r *Reconciler) handleCompleted(ctx context.Context, task *AgentJob) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
 	repo := dispatch.RepoFromString(task.Spec.Repo)
 	succeeded := task.Status.Phase == TaskPhaseSucceeded
 
-	// post result comment
 	status := "succeeded"
 	if !succeeded {
 		status = "failed"
@@ -168,10 +171,7 @@ func (r *Reconciler) handleCompleted(ctx context.Context, task *AgentJob) (ctrl.
 	}
 	github.PostComment(ctx, repo, task.Spec.IssueNumber, body)
 
-	// sync labels based on origin state
 	if succeeded {
-		// ready -> needs-review (second agent reviews next)
-		// needs-review -> needs-human (two rounds done, human decides)
 		nextAction := "needs-review"
 		if task.Spec.OriginState == "needs-review" {
 			nextAction = "needs-human"
@@ -179,7 +179,6 @@ func (r *Reconciler) handleCompleted(ctx context.Context, task *AgentJob) (ctrl.
 		task.Status.NextAction = nextAction
 		github.UnclaimIssue(ctx, repo, task.Spec.IssueNumber, task.Status.Agent, nextAction)
 	} else {
-		// failure -> back to origin state
 		returnTo := task.Spec.OriginState
 		if returnTo == "" {
 			returnTo = "ready"
@@ -189,7 +188,7 @@ func (r *Reconciler) handleCompleted(ctx context.Context, task *AgentJob) (ctrl.
 	}
 
 	task.Status.Reported = true
-	logger.Info("completed", "issue", task.Spec.IssueNumber, "status", status, "nextAction", task.Status.NextAction)
+	r.logf(ctx, task, "%s -> %s%s", status, task.Status.NextAction, duration)
 	return ctrl.Result{}, r.Status().Update(ctx, task)
 }
 

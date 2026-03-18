@@ -18,7 +18,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
+var operatorVerbose bool
+
 func init() {
+	operatorCmd.Flags().BoolVar(&operatorVerbose, "verbose", false, "enable verbose structured logging")
 	rootCmd.AddCommand(operatorCmd)
 }
 
@@ -29,13 +32,22 @@ var operatorCmd = &cobra.Command{
 }
 
 func runOperator(cmd *cobra.Command, args []string) error {
+	operator.Verbose = operatorVerbose
+
 	edt := time.FixedZone("EDT", -4*3600)
 	timeEncoder := func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 		enc.AppendString(t.In(edt).Format("15:04:05"))
 	}
+
+	// verbose: debug level, full structured output
+	// normal: warn level only (suppresses INFO/DEBUG spam from controller-runtime)
+	logLevel := zapcore.WarnLevel
+	if operatorVerbose {
+		logLevel = zapcore.DebugLevel
+	}
+
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true), zap.RawZapOpts(
 		uberzap.WrapCore(func(c zapcore.Core) zapcore.Core {
-			// replace the encoder with one that uses EDT 24h time
 			cfg := zapcore.EncoderConfig{
 				TimeKey:        "T",
 				LevelKey:       "L",
@@ -52,7 +64,7 @@ func runOperator(cmd *cobra.Command, args []string) error {
 			return zapcore.NewCore(
 				zapcore.NewConsoleEncoder(cfg),
 				zapcore.Lock(zapcore.AddSync(os.Stderr)),
-				zapcore.DebugLevel,
+				logLevel,
 			)
 		}),
 	)))
