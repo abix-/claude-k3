@@ -99,18 +99,12 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 
 	lockPath := filepath.Join(dir, lockFile)
 
-	c := exec.Command("claude")
-	c.Dir = dir
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-
+	c := exec.Command("wezterm", "start", "--cwd", dir, "--", "claude")
 	if err := c.Start(); err != nil {
-		return err
+		return fmt.Errorf("wezterm: %w", err)
 	}
 
 	os.WriteFile(lockPath, []byte(strconv.Itoa(c.Process.Pid)), 0o644)
-	err = c.Wait()
-	os.Remove(lockPath)
-	return err
+	c.Process.Release()
+	return nil
 }
