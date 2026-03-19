@@ -3,6 +3,7 @@ package tui
 import (
 	"bufio"
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/abix-/k3sc/internal/types"
@@ -132,6 +133,9 @@ func (ls *LogStreamer) Snapshot() []LiveLog {
 			})
 		}
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Agent < result[j].Agent
+	})
 	return result
 }
 
