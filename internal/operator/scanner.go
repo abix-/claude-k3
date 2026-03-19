@@ -32,6 +32,9 @@ func olog(prefix, format string, args ...any) {
 	fmt.Printf("%s [%s] %s\n", t, prefix, msg)
 }
 
+// ScanNow is a buffered channel the controller signals to trigger an immediate scan.
+var ScanNow = make(chan struct{}, 1)
+
 func Scanner(ctx context.Context, c client.Client, cs *kubernetes.Clientset, namespace string) {
 	logger := log.FromContext(ctx).WithName("scanner")
 	minInterval := config.C.Scan.MinInterval.Duration
@@ -51,6 +54,16 @@ func Scanner(ctx context.Context, c client.Client, cs *kubernetes.Clientset, nam
 		select {
 		case <-ctx.Done():
 			return
+		case <-ScanNow:
+			olog("scanner", "triggered by controller")
+			hadWork = scan(ctx, c, cs, namespace)
+			if hadWork {
+				interval = minInterval
+			} else {
+				interval = nextBackoff(interval, maxInterval)
+			}
+			olog("scanner", "next scan in %s", interval)
+			timer.Reset(interval)
 		case <-timer.C:
 			hadWork = scan(ctx, c, cs, namespace)
 			if hadWork {

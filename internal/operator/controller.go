@@ -193,6 +193,13 @@ func (r *Reconciler) handleCompleted(ctx context.Context, task *AgentJob) (ctrl.
 
 	task.Status.Reported = true
 	r.logf(ctx, task, "%s (origin=%s) -> %s%s", status, task.Spec.OriginState, task.Status.NextAction, duration)
+
+	// trigger immediate scan so the next agent picks up the transitioned issue fast
+	select {
+	case ScanNow <- struct{}{}:
+	default:
+	}
+
 	return ctrl.Result{}, r.Status().Update(ctx, task)
 }
 
