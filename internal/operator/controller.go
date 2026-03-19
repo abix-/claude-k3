@@ -89,9 +89,6 @@ func (r *Reconciler) handleAssigned(ctx context.Context, task *AgentJob) (ctrl.R
 	}
 
 	family := task.Spec.Family
-	if family == "" {
-		family = "claude"
-	}
 	jobName, err := k8s.CreateJobFromTemplate(ctx, r.K8s, r.Template, task.Spec.IssueNumber, task.Status.Slot, task.Spec.RepoURL, family)
 	if err != nil {
 		r.errf(ctx, err, task, "create job failed")

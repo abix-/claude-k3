@@ -27,6 +27,8 @@ spec:
                   type: integer
                 agent:
                   type: string
+                family:
+                  type: string
                 originState:
                   type: string
               required: [repo, repoName, issueNumber, repoURL, slot, agent]
