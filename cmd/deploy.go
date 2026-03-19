@@ -5,25 +5,39 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
 
+var skipTest bool
+
 func init() {
+	deployCmd.Flags().BoolVar(&skipTest, "skip-test", false, "skip go test step")
 	rootCmd.AddCommand(deployCmd)
 }
 
 var deployCmd = &cobra.Command{
 	Use:   "deploy",
-	Short: "Build image and deploy manifests to k3s",
+	Short: "Build, test, and deploy operator to k3s",
 	RunE:  runDeploy,
 }
 
-func runCmd(desc, cmd string) error {
+func runCmd(desc, name string, args ...string) error {
 	fmt.Printf("=== %s ===\n", desc)
-	fmt.Printf("  $ %s\n", cmd)
-	c := exec.Command("sh", "-c", cmd)
+	fmt.Printf("  $ %s %s\n", name, strings.Join(args, " "))
+	c := exec.Command(name, args...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
+}
+
+func runCmdEnv(desc string, env []string, name string, args ...string) error {
+	fmt.Printf("=== %s ===\n", desc)
+	fmt.Printf("  $ %s %s\n", name, strings.Join(args, " "))
+	c := exec.Command(name, args...)
+	c.Env = append(os.Environ(), env...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	return c.Run()
@@ -52,38 +66,63 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	imageDir := filepath.Join(repoRoot, "image")
-	manifests := filepath.Join(repoRoot, "manifests")
-	nerdctl := "sudo nerdctl --address /run/k3s/containerd/containerd.sock --namespace k8s.io"
-	kubectl := "sudo k3s kubectl"
-
-	if err := runCmd("building claude-agent image", fmt.Sprintf("%s build -t claude-agent:latest %s", nerdctl, imageDir)); err != nil {
-		return err
-	}
-	if err := runCmd("applying namespace", fmt.Sprintf("%s apply -f %s/namespace.yaml", kubectl, manifests)); err != nil {
-		return err
+	if err := os.Chdir(repoRoot); err != nil {
+		return fmt.Errorf("chdir %s: %w", repoRoot, err)
 	}
 
-	entries, _ := os.ReadDir(manifests)
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "pvc-") {
-			if err := runCmd("applying "+e.Name(), fmt.Sprintf("%s apply -f %s/%s", kubectl, manifests, e.Name())); err != nil {
-				return err
-			}
+	// 1. build windows binary
+	exe := "k3sc"
+	if runtime.GOOS == "windows" {
+		exe = "k3sc.exe"
+	}
+	if err := runCmd("building windows binary", "go", "build", "-o", exe, "."); err != nil {
+		return fmt.Errorf("go build: %w", err)
+	}
+
+	// 2. tests
+	if !skipTest {
+		if err := runCmd("running tests", "go", "test", "./..."); err != nil {
+			return fmt.Errorf("go test: %w", err)
 		}
+	} else {
+		fmt.Println("=== skipping tests ===")
 	}
 
-	if err := runCmd("creating configmap", fmt.Sprintf(
-		"%s create configmap dispatcher-scripts -n claude-agents --from-file=job-template.yaml=%s/job-template.yaml --dry-run=client -o yaml | %s apply -f -",
-		kubectl, manifests, kubectl)); err != nil {
-		return err
+	// 3. cross-compile linux binary
+	if err := runCmdEnv("cross-compiling linux binary",
+		[]string{"GOOS=linux", "GOARCH=amd64"},
+		"go", "build", "-o", filepath.Join("image", "k3sc"), "."); err != nil {
+		return fmt.Errorf("linux build: %w", err)
 	}
 
-	if err := runCmd("applying dispatcher cronjob + RBAC", fmt.Sprintf("%s apply -f %s/dispatcher-cronjob.yaml", kubectl, manifests)); err != nil {
-		return err
+	// 4. build container image via WSL
+	mntRoot := strings.ReplaceAll(repoRoot, `\`, `/`)
+	// convert C:\code\k3sc -> /mnt/c/code/k3sc
+	if len(mntRoot) >= 2 && mntRoot[1] == ':' {
+		mntRoot = "/mnt/" + strings.ToLower(mntRoot[:1]) + mntRoot[2:]
+	}
+	nerdctl := "sudo nerdctl --address /run/k3s/containerd/containerd.sock --namespace k8s.io"
+	buildCmd := fmt.Sprintf("cd %s && %s build -t claude-agent:latest image/", mntRoot, nerdctl)
+	if err := runCmd("building container image",
+		"wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c", buildCmd); err != nil {
+		return fmt.Errorf("image build: %w", err)
 	}
 
-	fmt.Println("\n=== deployment complete ===")
+	// 5. restart operator
+	kubectl := "sudo k3s kubectl"
+	restartCmd := fmt.Sprintf("%s rollout restart deployment k3sc-operator -n claude-agents", kubectl)
+	if err := runCmd("restarting operator",
+		"wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c", restartCmd); err != nil {
+		return fmt.Errorf("rollout restart: %w", err)
+	}
+
+	// 6. wait for rollout
+	waitCmd := fmt.Sprintf("%s rollout status deployment k3sc-operator -n claude-agents --timeout=60s", kubectl)
+	if err := runCmd("waiting for rollout",
+		"wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c", waitCmd); err != nil {
+		return fmt.Errorf("rollout status: %w", err)
+	}
+
+	fmt.Println("\n=== deploy complete ===")
 	return nil
 }
