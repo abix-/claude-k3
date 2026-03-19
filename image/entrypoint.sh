@@ -6,9 +6,10 @@ AGENT_SLOT="${AGENT_SLOT:?AGENT_SLOT env var required}"
 SLOT_LETTER="${SLOT_LETTER:?SLOT_LETTER env var required}"
 REPO_URL="${REPO_URL:-https://github.com/abix-/endless.git}"
 
-AGENT_ID="claude-${SLOT_LETTER}"
+AGENT_FAMILY="${AGENT_FAMILY:-claude}"
+AGENT_ID="${AGENT_FAMILY}-${SLOT_LETTER}"
 REPO_NAME=$(basename "${REPO_URL}" .git)
-WORKSPACE="/workspaces/${REPO_NAME}-claude-${SLOT_LETTER}"
+WORKSPACE="/workspaces/${REPO_NAME}-${AGENT_ID}"
 
 export CARGO_TARGET_DIR="/cargo-target"
 export CARGO_HOME="/cargo-home"

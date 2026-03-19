@@ -75,6 +75,7 @@ type AgentPod struct {
 	Name     string
 	Issue    int
 	Slot     int
+	Family   AgentFamily
 	Phase    PodPhase
 	Started  *time.Time
 	Finished *time.Time

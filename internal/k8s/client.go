@@ -177,10 +177,16 @@ func GetAgentPods(ctx context.Context, cs *kubernetes.Clientset) ([]types.AgentP
 			}
 		}
 
+		family := types.AgentFamily(p.Labels["agent-family"])
+		if family == "" {
+			family = types.FamilyClaude
+		}
+
 		result = append(result, types.AgentPod{
 			Name:     p.Name,
 			Issue:    issue,
 			Slot:     slot,
+			Family:   family,
 			Phase:    phase,
 			Started:  started,
 			Finished: finished,
@@ -541,8 +547,8 @@ func CreateJobFromTemplate(ctx context.Context, cs *kubernetes.Clientset, templa
 	timestamp := time.Now().Unix()
 	manifest := applyTemplateSubstitutions(template, issue, slot, repoURL, family)
 	manifest = strings.Replace(manifest,
-		fmt.Sprintf(`name: "claude-issue-%d"`, issue),
-		fmt.Sprintf(`name: "claude-issue-%d-%d"`, issue, timestamp),
+		fmt.Sprintf(`name: "%s-issue-%d"`, family, issue),
+		fmt.Sprintf(`name: "%s-issue-%d-%d"`, family, issue, timestamp),
 		1,
 	)
 

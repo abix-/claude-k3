@@ -221,7 +221,7 @@ func printDashboard(d *dashboard) {
 	} else {
 		fmt.Printf("%-7s %-10s %-11s %-16s %-10s Last Output\n", "Issue", "Agent", "Status", "Started", "Duration")
 		for _, pod := range d.pods {
-			agent := types.AgentName(types.FamilyClaude, pod.Slot)
+			agent := types.AgentName(pod.Family, pod.Slot)
 			fmt.Printf("%s %-10s %-11s %-16s %-10s %s\n",
 				format.IssueLink(pod.Repo, pod.Issue), agent, pod.Phase.Display(),
 				format.FmtTime(pod.Started), format.FmtDuration(pod.Started, pod.Finished),
@@ -312,7 +312,7 @@ func runTop(cmd *cobra.Command, args []string) error {
 					liveMu.Lock()
 					liveLogs = append(liveLogs, tui.LiveLog{
 						Issue: pods[idx].Issue,
-						Agent: types.AgentName(types.FamilyClaude, pods[idx].Slot),
+						Agent: types.AgentName(pods[idx].Family, pods[idx].Slot),
 						Lines: lines,
 					})
 					liveMu.Unlock()

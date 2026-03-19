@@ -323,7 +323,7 @@ func (m Model) renderView(maxVisiblePods int) string {
 			visiblePods = append(runPods, donePods...)
 		}
 		for _, pod := range visiblePods {
-			agent := types.AgentName(types.FamilyClaude, pod.Slot)
+			agent := types.AgentName(pod.Family, pod.Slot)
 			started := format.FmtTime(pod.Started)
 			duration := format.FmtDuration(pod.Started, pod.Finished)
 			tail := format.Truncate(pod.LogTail, w-74)
