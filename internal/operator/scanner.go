@@ -9,8 +9,10 @@ import (
 	"github.com/abix-/k3sc/internal/config"
 	"github.com/abix-/k3sc/internal/dispatch"
 	"github.com/abix-/k3sc/internal/github"
+	"github.com/abix-/k3sc/internal/k8s"
 	"github.com/abix-/k3sc/internal/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -30,14 +32,14 @@ func olog(prefix, format string, args ...any) {
 	fmt.Printf("%s [%s] %s\n", t, prefix, msg)
 }
 
-func Scanner(ctx context.Context, c client.Client, namespace string) {
+func Scanner(ctx context.Context, c client.Client, cs *kubernetes.Clientset, namespace string) {
 	logger := log.FromContext(ctx).WithName("scanner")
 	minInterval := config.C.Scan.MinInterval.Duration
 	maxInterval := config.C.Scan.MaxInterval.Duration
 	interval := minInterval
 	logger.Info("starting github scanner", "interval", interval)
 
-	hadWork := scan(ctx, c, namespace)
+	hadWork := scan(ctx, c, cs, namespace)
 	if !hadWork {
 		interval = nextBackoff(interval, maxInterval)
 	}
@@ -50,13 +52,13 @@ func Scanner(ctx context.Context, c client.Client, namespace string) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			hadWork = scan(ctx, c, namespace)
+			hadWork = scan(ctx, c, cs, namespace)
 			if hadWork {
 				interval = minInterval
 			} else {
 				interval = nextBackoff(interval, maxInterval)
 			}
-			olog("scanner","next scan in %s", interval)
+			olog("scanner", "next scan in %s", interval)
 			timer.Reset(interval)
 		}
 	}
@@ -70,16 +72,31 @@ func nextBackoff(current, max time.Duration) time.Duration {
 	return next
 }
 
-func scan(ctx context.Context, c client.Client, namespace string) bool {
+const usageLimitLookback = 15 * time.Minute
+
+func scan(ctx context.Context, c client.Client, cs *kubernetes.Clientset, namespace string) bool {
+	// usage-limit detection: skip dispatch if a pod recently hit Claude rate limits
+	usagePod, _, err := k8s.FindRecentUsageLimitPod(ctx, cs, usageLimitLookback)
+	if err != nil {
+		olog("scanner", "usage limit check error: %v", err)
+	}
+	if usagePod != nil {
+		olog("scanner", "usage limit detected in pod %s (%s#%d), skipping dispatch", usagePod.Name, usagePod.Repo.Name, usagePod.Issue)
+		return false
+	}
+
+	// orphan cleanup: find issues with owner labels but no active pod or job
+	orphanCleanup(ctx, cs)
+
 	eligible, err := github.GetEligibleIssues(ctx)
 	if err != nil {
-		olog("scanner","github error: %v", err)
+		olog("scanner", "github error: %v", err)
 		return false
 	}
 
 	var existing AgentJobList
 	if err := c.List(ctx, &existing, client.InNamespace(namespace)); err != nil {
-		olog("scanner","list tasks error: %v", err)
+		olog("scanner", "list tasks error: %v", err)
 		return false
 	}
 
@@ -107,13 +124,13 @@ func scan(ctx context.Context, c client.Client, namespace string) bool {
 			continue
 		}
 		if failCounts[key] >= MaxFailures {
-			olog("scanner","%s blocked after %d failures", key, failCounts[key])
+			olog("scanner", "%s blocked after %d failures", key, failCounts[key])
 			continue
 		}
 
 		slot := dispatch.FindFreeSlotFromList(usedSlots, maxSlots)
 		if slot == -1 {
-			olog("scanner","no free slots")
+			olog("scanner", "no free slots")
 			break
 		}
 
@@ -145,12 +162,11 @@ func scan(ctx context.Context, c client.Client, namespace string) bool {
 		}
 
 		if err := c.Create(ctx, task); err != nil {
-			olog("scanner","create %s: %v", name, err)
+			olog("scanner", "create %s: %v", name, err)
 			continue
 		}
-		olog("scanner","created %s (slot %d, %s)", name, slot, agent)
+		olog("scanner", "created %s (slot %d, %s)", name, slot, agent)
 
-		// update in-memory state so next iteration sees this slot as used
 		usedSlots = append(usedSlots, slot)
 		activeIssues[key] = true
 	}
@@ -163,12 +179,55 @@ func scan(ctx context.Context, c client.Client, namespace string) bool {
 		}
 		if time.Since(t.CreationTimestamp.Time) > config.C.Scan.TaskTTL.Duration {
 			if err := c.Delete(ctx, t); err != nil {
-				olog("scanner","cleanup %s: %v", t.Name, err)
+				olog("scanner", "cleanup %s: %v", t.Name, err)
 			} else {
-				olog("scanner","cleaned up %s", t.Name)
+				olog("scanner", "cleaned up %s", t.Name)
 			}
 		}
 	}
 
 	return len(eligible) > 0
+}
+
+// orphanCleanup finds issues with owner labels but no active pod or k8s job.
+func orphanCleanup(ctx context.Context, cs *kubernetes.Clientset) {
+	owned, err := github.GetOwnedIssues(ctx)
+	if err != nil {
+		olog("scanner", "orphan check error: %v", err)
+		return
+	}
+	if len(owned) == 0 {
+		return
+	}
+
+	activeSlots, err := k8s.GetActiveSlots(ctx, cs)
+	if err != nil {
+		olog("scanner", "orphan slot check error: %v", err)
+		return
+	}
+	activeAgents := map[string]bool{}
+	for _, s := range activeSlots {
+		activeAgents[types.AgentName(s)] = true
+	}
+
+	for _, issue := range owned {
+		if activeAgents[issue.Owner] {
+			continue
+		}
+		// job exists = controller will handle the transition
+		if hasJob, err := k8s.HasJobForIssue(ctx, cs, issue.Number); err == nil && hasJob {
+			olog("scanner", "%s#%d owned by %s: no active pod but job exists, deferring to controller", issue.Repo.Name, issue.Number, issue.Owner)
+			continue
+		}
+		// truly orphaned
+		returnLabel := "ready"
+		hasPR, err := github.HasOpenPR(ctx, issue.Repo, issue.Number)
+		if err == nil && hasPR {
+			returnLabel = "needs-review"
+		}
+		olog("scanner", "orphan: %s#%d owned by %s, returning to %s", issue.Repo.Name, issue.Number, issue.Owner, returnLabel)
+		if err := github.UnclaimIssue(ctx, issue.Repo, issue.Number, issue.Owner, returnLabel); err != nil {
+			olog("scanner", "orphan unclaim %s#%d: %v", issue.Repo.Name, issue.Number, err)
+		}
+	}
 }

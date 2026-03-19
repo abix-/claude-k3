@@ -100,7 +100,7 @@ func runOperator(cmd *cobra.Command, args []string) error {
 	}
 
 	ctx := ctrl.SetupSignalHandler()
-	go operator.Scanner(ctx, mgr.GetClient(), types.Namespace)
+	go operator.Scanner(ctx, mgr.GetClient(), cs, types.Namespace)
 
 	fmt.Println("[operator] starting")
 	return mgr.Start(ctx)
