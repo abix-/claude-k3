@@ -260,6 +260,9 @@ func (m Model) renderLogView() string {
 		if logLines < 2 {
 			logLines = 2
 		}
+		if logLines > 8 {
+			logLines = 8
+		}
 
 		sep := dim.Render(strings.Repeat("-", w))
 		for i, ll := range d.LiveLogs {
