@@ -224,14 +224,18 @@ func UnclaimIssue(ctx context.Context, repo types.Repo, issueNumber int, ownerLa
 		fmt.Sprintf("## k3sc operator\n- Released by %s -> %s", ownerLabel, returnLabel))
 }
 
-// isK3sAgent returns true if the owner label is a k3s letter-based agent (claude-a through claude-z).
-// Windows agents use numbers (claude-1, claude-2) and should not be touched by the dispatcher.
+// isK3sAgent returns true if the owner label is a k3s letter-based agent (claude-a through claude-z, codex-a through codex-z).
+// Windows agents use numbers (claude-1, codex-1) and should not be touched by the dispatcher.
 func isK3sAgent(owner string) bool {
-	if !strings.HasPrefix(owner, "claude-") {
-		return false
+	for _, prefix := range []string{"claude-", "codex-"} {
+		if strings.HasPrefix(owner, prefix) {
+			suffix := strings.TrimPrefix(owner, prefix)
+			if len(suffix) == 1 && suffix[0] >= 'a' && suffix[0] <= 'z' {
+				return true
+			}
+		}
 	}
-	suffix := strings.TrimPrefix(owner, "claude-")
-	return len(suffix) == 1 && suffix[0] >= 'a' && suffix[0] <= 'z'
+	return false
 }
 
 // GetOwnedIssues returns open issues owned by k3s agents (letter-based) that are not needs-human.

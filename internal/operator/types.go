@@ -37,6 +37,7 @@ type AgentJobSpec struct {
 	RepoURL     string `json:"repoURL"`     // clone URL
 	Slot        int    `json:"slot"`         // assigned by scanner, immutable
 	Agent       string `json:"agent"`        // assigned by scanner, immutable (e.g. "claude-a")
+	Family      string `json:"family"`       // "claude" or "codex"
 	OriginState string `json:"originState"`  // "ready" or "needs-review" -- determines next state on completion
 }
 

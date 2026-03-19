@@ -87,6 +87,19 @@ func nextBackoff(current, max time.Duration) time.Duration {
 
 const usageLimitLookback = 15 * time.Minute
 
+// round-robin between claude and codex
+var nextFamily = types.FamilyClaude
+
+func pickFamily() types.AgentFamily {
+	f := nextFamily
+	if nextFamily == types.FamilyClaude {
+		nextFamily = types.FamilyCodex
+	} else {
+		nextFamily = types.FamilyClaude
+	}
+	return f
+}
+
 func scan(ctx context.Context, c client.Client, cs *kubernetes.Clientset, namespace string) bool {
 	// usage-limit detection: skip dispatch if a pod recently hit Claude rate limits
 	usagePod, _, err := k8s.FindRecentUsageLimitPod(ctx, cs, usageLimitLookback)
@@ -147,7 +160,8 @@ func scan(ctx context.Context, c client.Client, cs *kubernetes.Clientset, namesp
 			break
 		}
 
-		agent := types.AgentName(slot)
+		family := pickFamily()
+		agent := types.AgentName(family, slot)
 		epoch := time.Now().Unix()
 		name := fmt.Sprintf("%s-%d-%d", strings.ReplaceAll(issue.Repo.Name, "/", "-"), issue.Number, epoch)
 
@@ -167,6 +181,7 @@ func scan(ctx context.Context, c client.Client, cs *kubernetes.Clientset, namesp
 				RepoURL:     issue.Repo.CloneURL(),
 				Slot:        slot,
 				Agent:       agent,
+				Family:      string(family),
 				OriginState: issue.State,
 			},
 			Status: AgentJobStatus{
@@ -220,7 +235,8 @@ func orphanCleanup(ctx context.Context, cs *kubernetes.Clientset) {
 	}
 	activeAgents := map[string]bool{}
 	for _, s := range activeSlots {
-		activeAgents[types.AgentName(s)] = true
+		activeAgents[types.AgentName(types.FamilyClaude, s)] = true
+		activeAgents[types.AgentName(types.FamilyCodex, s)] = true
 	}
 
 	for _, issue := range owned {

@@ -1,5 +1,5 @@
 # Template used by dispatcher to create Jobs.
-# __ISSUE_NUMBER__, __AGENT_SLOT__, __SLOT_LETTER__, __REPO_URL__, and __REPO_NAME__ are replaced at creation time.
+# __ISSUE_NUMBER__, __AGENT_SLOT__, __SLOT_LETTER__, __REPO_URL__, __REPO_NAME__, and __AGENT_FAMILY__ are replaced at creation time.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -36,11 +36,20 @@ spec:
               value: "__SLOT_LETTER__"
             - name: REPO_URL
               value: "__REPO_URL__"
+            - name: AGENT_FAMILY
+              value: "__AGENT_FAMILY__"
             - name: CLAUDE_CODE_OAUTH_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: claude-secrets
                   key: CLAUDE_CODE_OAUTH_TOKEN
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: claude-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
           volumeMounts:
             - name: cargo-target
               mountPath: /cargo-target

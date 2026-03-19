@@ -61,23 +61,36 @@ fi
 echo "[entrypoint] verifying gh auth..."
 gh auth status 2>&1 || true
 
-echo "[entrypoint] verifying claude auth..."
-claude --version 2>&1 || true
+AGENT_FAMILY="${AGENT_FAMILY:-claude}"
+echo "[entrypoint] agent family: ${AGENT_FAMILY}"
 
-echo "[entrypoint] launching claude for ${REPO_NAME}#${ISSUE_NUMBER}..."
-claude --dangerously-skip-permissions -p "/issue ${REPO_NAME} ${ISSUE_NUMBER}" \
-    --output-format stream-json --verbose --include-partial-messages 2>&1 | \
-    while IFS= read -r line || [ -n "$line" ]; do
-        if parsed=$(printf '%s\n' "$line" | jq -rj 'if .type == "stream_event" and .event.delta.type? == "text_delta" then .event.delta.text
-         elif .type == "assistant" then (.message.content[]? | select(.type=="tool_use") | "\n[tool] " + .name + "\n")
-         elif .type == "result" then ((.result? // "") | if . != "" then "\n" + . + "\n" else "" end) + "[result] exit\n"
-         elif .type == "error" then ((.error.message? // .message? // tostring) + "\n")
-         else empty end' 2>/dev/null); then
-            printf '%s' "$parsed"
-        elif [ -n "$line" ]; then
-            printf '%s\n' "$line"
-        fi
-    done
-EXIT_CODE=${PIPESTATUS[0]}
-echo "[entrypoint] claude exited with code ${EXIT_CODE}"
+if [ "$AGENT_FAMILY" = "codex" ]; then
+    echo "[entrypoint] verifying codex auth..."
+    codex --version 2>&1 || true
+
+    echo "[entrypoint] launching codex for ${REPO_NAME}#${ISSUE_NUMBER}..."
+    codex exec --dangerously-bypass-approvals-and-sandbox "/issue ${REPO_NAME} ${ISSUE_NUMBER}" 2>&1
+    EXIT_CODE=$?
+else
+    echo "[entrypoint] verifying claude auth..."
+    claude --version 2>&1 || true
+
+    echo "[entrypoint] launching claude for ${REPO_NAME}#${ISSUE_NUMBER}..."
+    claude --dangerously-skip-permissions -p "/issue ${REPO_NAME} ${ISSUE_NUMBER}" \
+        --output-format stream-json --verbose --include-partial-messages 2>&1 | \
+        while IFS= read -r line || [ -n "$line" ]; do
+            if parsed=$(printf '%s\n' "$line" | jq -rj 'if .type == "stream_event" and .event.delta.type? == "text_delta" then .event.delta.text
+             elif .type == "assistant" then (.message.content[]? | select(.type=="tool_use") | "\n[tool] " + .name + "\n")
+             elif .type == "result" then ((.result? // "") | if . != "" then "\n" + . + "\n" else "" end) + "[result] exit\n"
+             elif .type == "error" then ((.error.message? // .message? // tostring) + "\n")
+             else empty end' 2>/dev/null); then
+                printf '%s' "$parsed"
+            elif [ -n "$line" ]; then
+                printf '%s\n' "$line"
+            fi
+        done
+    EXIT_CODE=${PIPESTATUS[0]}
+fi
+
+echo "[entrypoint] ${AGENT_FAMILY} exited with code ${EXIT_CODE}"
 exit ${EXIT_CODE}

@@ -13,8 +13,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# claude code CLI
-RUN npm install -g @anthropic-ai/claude-code
+# claude code CLI + codex CLI
+RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
 # github CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \

@@ -20,6 +20,14 @@ var Repos = []Repo{
 	{Owner: "abix-", Name: "k3sc"},
 }
 
+// AgentFamily is "claude" or "codex".
+type AgentFamily string
+
+const (
+	FamilyClaude AgentFamily = "claude"
+	FamilyCodex  AgentFamily = "codex"
+)
+
 // SlotLetter converts a 1-based slot number to a letter (1=a, 2=b, ..., 26=z).
 func SlotLetter(slot int) string {
 	if slot < 1 || slot > 26 {
@@ -28,9 +36,9 @@ func SlotLetter(slot int) string {
 	return string(rune('a' + slot - 1))
 }
 
-// AgentName returns the agent ID for a k3s slot (e.g. "claude-a").
-func AgentName(slot int) string {
-	return "claude-" + SlotLetter(slot)
+// AgentName returns the agent ID for a k3s slot (e.g. "claude-a", "codex-b").
+func AgentName(family AgentFamily, slot int) string {
+	return string(family) + "-" + SlotLetter(slot)
 }
 
 type PodPhase string

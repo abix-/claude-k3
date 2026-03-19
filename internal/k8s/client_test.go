@@ -106,7 +106,7 @@ spec:
 	}
 
 	for _, tc := range cases {
-		result := applyTemplateSubstitutions(template, 42, tc.slot, "https://github.com/abix-/endless.git")
+		result := applyTemplateSubstitutions(template, 42, tc.slot, "https://github.com/abix-/endless.git", "claude")
 		want := `value: "` + tc.letter + `"`
 		if !strings.Contains(result, want) {
 			t.Errorf("slot %d: result does not contain %q\ngot:\n%s", tc.slot, want, result)

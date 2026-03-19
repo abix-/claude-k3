@@ -105,7 +105,7 @@ func runDispatchInner() (string, error) {
 		} else {
 			activeAgents := map[string]bool{}
 			for _, s := range activeSlots {
-				activeAgents[types.AgentName(s)] = true
+				activeAgents[types.AgentName(types.FamilyClaude, s)] = true
 			}
 			for _, issue := range owned {
 				if activeAgents[issue.Owner] {
@@ -176,7 +176,7 @@ func runDispatchInner() (string, error) {
 			break
 		}
 
-		agentName := types.AgentName(slot)
+		agentName := types.AgentName(types.FamilyClaude, slot)
 		log = append(log, fmt.Sprintf("[dispatcher] claiming %s#%d for %s (slot %d)", issue.Repo.Name, issue.Number, agentName, slot))
 
 		if err := github.ClaimIssue(ctx, issue.Repo, issue.Number, agentName); err != nil {
@@ -185,7 +185,7 @@ func runDispatchInner() (string, error) {
 		}
 		log = append(log, fmt.Sprintf("  claimed on github"))
 
-		name, err := k8s.CreateJobFromTemplate(ctx, cs, template, issue.Number, slot, issue.Repo.CloneURL())
+		name, err := k8s.CreateJobFromTemplate(ctx, cs, template, issue.Number, slot, issue.Repo.CloneURL(), "claude")
 		if err != nil {
 			log = append(log, fmt.Sprintf("  JOB ERROR: %v", err))
 		} else {

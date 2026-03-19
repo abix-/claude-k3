@@ -521,7 +521,7 @@ func FindPodForIssue(ctx context.Context, cs *kubernetes.Clientset, issue int) (
 
 // applyTemplateSubstitutions replaces all __PLACEHOLDER__ tokens in the template.
 // Extracted as a standalone function so it can be unit-tested without a k8s client.
-func applyTemplateSubstitutions(tmpl string, issue, slot int, repoURL string) string {
+func applyTemplateSubstitutions(tmpl string, issue, slot int, repoURL, family string) string {
 	repoName := repoURL
 	if idx := strings.LastIndex(repoName, "/"); idx >= 0 {
 		repoName = repoName[idx+1:]
@@ -533,12 +533,13 @@ func applyTemplateSubstitutions(tmpl string, issue, slot int, repoURL string) st
 	m = strings.ReplaceAll(m, "__SLOT_LETTER__", types.SlotLetter(slot))
 	m = strings.ReplaceAll(m, "__REPO_URL__", repoURL)
 	m = strings.ReplaceAll(m, "__REPO_NAME__", repoName)
+	m = strings.ReplaceAll(m, "__AGENT_FAMILY__", family)
 	return m
 }
 
-func CreateJobFromTemplate(ctx context.Context, cs *kubernetes.Clientset, template string, issue, slot int, repoURL string) (string, error) {
+func CreateJobFromTemplate(ctx context.Context, cs *kubernetes.Clientset, template string, issue, slot int, repoURL, family string) (string, error) {
 	timestamp := time.Now().Unix()
-	manifest := applyTemplateSubstitutions(template, issue, slot, repoURL)
+	manifest := applyTemplateSubstitutions(template, issue, slot, repoURL, family)
 	manifest = strings.Replace(manifest,
 		fmt.Sprintf(`name: "claude-issue-%d"`, issue),
 		fmt.Sprintf(`name: "claude-issue-%d-%d"`, issue, timestamp),

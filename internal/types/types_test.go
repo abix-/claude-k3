@@ -36,10 +36,10 @@ func TestSlotLetterBoundaries(t *testing.T) {
 }
 
 func TestAgentName(t *testing.T) {
-	if got := AgentName(1); got != "claude-a" {
-		t.Errorf("AgentName(1) = %q, want \"claude-a\"", got)
+	if got := AgentName(FamilyClaude, 1); got != "claude-a" {
+		t.Errorf("AgentName(claude, 1) = %q, want \"claude-a\"", got)
 	}
-	if got := AgentName(3); got != "claude-c" {
-		t.Errorf("AgentName(3) = %q, want \"claude-c\"", got)
+	if got := AgentName(FamilyCodex, 3); got != "codex-c" {
+		t.Errorf("AgentName(codex, 3) = %q, want \"codex-c\"", got)
 	}
 }
