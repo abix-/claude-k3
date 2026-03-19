@@ -160,10 +160,6 @@ func (r *Reconciler) handleCompleted(ctx context.Context, task *AgentJob) (ctrl.
 		duration = fmt.Sprintf(" (%dm %02ds)", int(d.Minutes()), int(d.Seconds())%60)
 	}
 
-	body := fmt.Sprintf("## k3sc operator\n- Agent: %s\n- Status: %s%s",
-		task.Status.Agent, status, duration)
-	github.PostComment(ctx, repo, task.Spec.IssueNumber, body)
-
 	if succeeded {
 		nextAction := "needs-review"
 		if task.Spec.OriginState == "needs-review" {
