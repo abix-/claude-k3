@@ -228,6 +228,42 @@ func HasAgentJobForIssue(ctx context.Context, issue int) (bool, error) {
 	return false, nil
 }
 
+// DeleteAgentJobsForIssue deletes all terminal AgentJob CRDs for the given issue.
+// Returns the number of deleted jobs.
+func DeleteAgentJobsForIssue(ctx context.Context, issue int) (int, error) {
+	cfg, err := getConfig()
+	if err != nil {
+		return 0, err
+	}
+	cfg.APIPath = "/apis"
+	cfg.GroupVersion = &schema.GroupVersion{Group: "k3sc.abix.dev", Version: "v1"}
+	cfg.NegotiatedSerializer = nil
+
+	rc, err := rest.UnversionedRESTClientFor(cfg)
+	if err != nil {
+		return 0, err
+	}
+
+	jobs, err := GetAgentJobs(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	deleted := 0
+	terminal := map[string]bool{"Succeeded": true, "Failed": true, "Blocked": true}
+	for _, j := range jobs {
+		if j.Issue == issue && terminal[j.Phase] {
+			err := rc.Delete().
+				AbsPath("/apis/k3sc.abix.dev/v1/namespaces/" + types.Namespace + "/agentjobs/" + j.Name).
+				Do(ctx).Error()
+			if err == nil {
+				deleted++
+			}
+		}
+	}
+	return deleted, nil
+}
+
 func GetActiveSlots(ctx context.Context, cs *kubernetes.Clientset) ([]int, error) {
 	jobs, err := cs.BatchV1().Jobs(types.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "app=claude-agent",

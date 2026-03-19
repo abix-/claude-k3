@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/abix-/k3sc/internal/github"
+	"github.com/abix-/k3sc/internal/k8s"
 	"github.com/abix-/k3sc/internal/types"
 	"github.com/spf13/cobra"
 )
@@ -42,13 +43,21 @@ func resetIssueLabels(ctx context.Context, repoName string, issue int, targetLab
 	if err != nil {
 		return err
 	}
-	if owner == "" {
-		fmt.Printf("issue %d is not claimed\n", issue)
-		return nil
+	if owner != "" {
+		if err := github.UnclaimIssue(ctx, repo, issue, owner, targetLabel); err != nil {
+			return err
+		}
+		fmt.Printf("issue %d: %s -> %s\n", issue, owner, targetLabel)
+	} else {
+		fmt.Printf("issue %d: not claimed\n", issue)
 	}
-	if err := github.UnclaimIssue(ctx, repo, issue, owner, targetLabel); err != nil {
-		return err
+
+	// delete failed/blocked AgentJobs so the issue isn't stuck at MaxFailures
+	deleted, err := k8s.DeleteAgentJobsForIssue(ctx, issue)
+	if err != nil {
+		fmt.Printf("warning: could not clean up AgentJobs: %v\n", err)
+	} else if deleted > 0 {
+		fmt.Printf("issue %d: deleted %d AgentJob(s)\n", issue, deleted)
 	}
-	fmt.Printf("issue %d: %s -> %s\n", issue, owner, targetLabel)
 	return nil
 }
