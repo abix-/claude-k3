@@ -19,6 +19,7 @@ type podStream struct {
 	mu     sync.Mutex
 	lines  []string
 	cancel context.CancelFunc
+	done   chan struct{} // closed when goroutine exits
 }
 
 func (ps *podStream) appendLine(line string) {
@@ -36,6 +37,17 @@ func (ps *podStream) snapshot() []string {
 	out := make([]string, len(ps.lines))
 	copy(out, ps.lines)
 	return out
+}
+
+// wait blocks until the goroutine exits.
+func (ps *podStream) wait() {
+	<-ps.done
+}
+
+// stop cancels and waits for the goroutine to exit.
+func (ps *podStream) stop() {
+	ps.cancel()
+	ps.wait()
 }
 
 // LogStreamer manages persistent Follow log streams for running pods.
@@ -57,7 +69,6 @@ func NewLogStreamer(cs *kubernetes.Clientset, ns string) *LogStreamer {
 // Sync starts streams for new running pods and stops streams for gone pods.
 func (ls *LogStreamer) Sync(pods []types.AgentPod) {
 	ls.mu.Lock()
-	defer ls.mu.Unlock()
 
 	// build set of currently running pod names
 	running := map[string]types.AgentPod{}
@@ -67,53 +78,79 @@ func (ls *LogStreamer) Sync(pods []types.AgentPod) {
 		}
 	}
 
-	// stop streams for pods no longer running
+	// collect streams to stop (can't hold ls.mu while waiting)
+	var toStop []*podStream
 	for name, ps := range ls.streams {
 		if _, ok := running[name]; !ok {
-			ps.cancel()
+			toStop = append(toStop, ps)
 			delete(ls.streams, name)
 		}
 	}
 
-	// start streams for new running pods
+	// collect pods that need new streams
+	var toStart []types.AgentPod
 	for name, pod := range running {
-		if _, ok := ls.streams[name]; ok {
-			continue
+		if _, ok := ls.streams[name]; !ok {
+			toStart = append(toStart, pod)
 		}
+	}
+
+	// start new streams while holding the lock
+	for _, pod := range toStart {
 		ctx, cancel := context.WithCancel(context.Background())
 		ps := &podStream{
 			agent:  types.AgentName(pod.Family, pod.Slot),
 			issue:  pod.Issue,
 			cancel: cancel,
+			done:   make(chan struct{}),
 		}
-		ls.streams[name] = ps
-		go ls.follow(ctx, name, ps)
+		ls.streams[pod.Name] = ps
+		go ls.follow(ctx, pod.Name, ps)
+	}
+
+	ls.mu.Unlock()
+
+	// stop old streams outside the lock so we can wait without blocking
+	for _, ps := range toStop {
+		ps.stop()
 	}
 }
 
 func (ls *LogStreamer) follow(ctx context.Context, podName string, ps *podStream) {
-	var tailLines int64 = maxLogLines
-	req := ls.cs.CoreV1().Pods(ls.ns).GetLogs(podName, &corev1.PodLogOptions{
-		Follow:    true,
-		TailLines: &tailLines,
-	})
-	stream, err := req.Stream(ctx)
-	if err != nil {
-		return
-	}
-	defer stream.Close()
+	defer close(ps.done)
 
-	scanner := bufio.NewScanner(stream)
-	for scanner.Scan() {
+	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-		line := scanner.Text()
-		if line != "" {
-			ps.appendLine(line)
+
+		var tailLines int64 = maxLogLines
+		req := ls.cs.CoreV1().Pods(ls.ns).GetLogs(podName, &corev1.PodLogOptions{
+			Follow:    true,
+			TailLines: &tailLines,
+		})
+		stream, err := req.Stream(ctx)
+		if err != nil {
+			return // pod gone or ctx cancelled
 		}
+
+		scanner := bufio.NewScanner(stream)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				stream.Close()
+				return
+			default:
+			}
+			line := scanner.Text()
+			if line != "" {
+				ps.appendLine(line)
+			}
+		}
+		stream.Close()
+		// stream ended (EOF) -- reconnect unless cancelled
 	}
 }
 
@@ -139,12 +176,17 @@ func (ls *LogStreamer) Snapshot() []LiveLog {
 	return result
 }
 
-// Stop cancels all active streams.
+// Stop cancels all active streams and waits for goroutines to exit.
 func (ls *LogStreamer) Stop() {
 	ls.mu.Lock()
-	defer ls.mu.Unlock()
+	var all []*podStream
 	for name, ps := range ls.streams {
-		ps.cancel()
+		all = append(all, ps)
 		delete(ls.streams, name)
+	}
+	ls.mu.Unlock()
+
+	for _, ps := range all {
+		ps.stop()
 	}
 }
