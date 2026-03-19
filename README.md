@@ -13,10 +13,10 @@ GitHub Issues (ready/needs-review labels)
         |
    creates AgentJob CRs -> reconciler creates k8s Jobs
         |
-   [claude-agent pod]
+   [agent pod]
         |
         +-- clones repo
-        +-- runs: claude --dangerously-skip-permissions -p "/issue 42"
+        +-- runs: claude or codex on the assigned issue
         +-- implements or reviews the issue
         +-- pushes branch, creates PR, hands off via labels
 ```
@@ -41,7 +41,7 @@ Each agent pod gets a letter-based identity (claude-a, claude-b, ..., claude-z) 
 | `k3sc pause` | Scale operator to 0 replicas |
 | `k3sc resume` | Scale operator to 1 replica |
 | `k3sc next` | Pick a random issue or PR that needs human review |
-| `k3sc launch` | Launch a Windows-side Claude session in a free slot directory |
+| `k3sc launch` | Launch a Windows-side Claude or Codex session in a free slot directory |
 
 ## TUI
 
@@ -55,7 +55,7 @@ The `top` command provides a live dashboard with sections for cluster status, op
 - **Agent pods**: Ubuntu 24.04 with Node.js, Claude Code CLI, Rust toolchain, gh CLI, kubectl
 - **Shared PVCs**: `workspaces` (git clones), `cargo-target` (build artifacts), `cargo-home` (crate registry)
 - **Host mounts**: Claude skills, commands, docs, and CLAUDE.md mounted read-only from the host
-- **Auth**: Claude Code OAuth token via k8s secret, GitHub token via host-mounted file
+- **Auth**: GitHub, Claude, and Codex auth injected into pods from a k8s secret; pod auth does not depend on host-mounted token files
 
 ## Configuration
 
@@ -98,6 +98,7 @@ The scanner only picks up `ready` and `needs-review` issues from configured repo
 - k3s running in WSL2 (Ubuntu 24.04)
 - Go 1.25+ (for building the CLI)
 - Claude Code OAuth token (`claude setup-token`)
+- Codex auth (`codex login`) or `OPENAI_API_KEY`
 - GitHub personal access token with repo scope
 
 ## Quick start
@@ -110,11 +111,12 @@ go build -o k3sc.exe .
 # cross-compile linux binary for container
 GOOS=linux GOARCH=amd64 go build -o image/k3sc .
 
-# ensure local auth files exist:
+# ensure local auth exists:
 # - ~/.gh-token
 # - ~/.claude/.credentials.json
+# - ~/.codex/auth.json or OPENAI_API_KEY
 #
-# deploy will create/update the k8s claude-secrets secret from those files
+# deploy will create/update the k8s claude-secrets secret from those local auth sources
 sudo k3s kubectl apply -f manifests/namespace.yaml
 
 # deploy (builds image, applies manifests)

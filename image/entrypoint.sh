@@ -25,6 +25,7 @@ if [ ! -d "${HOME}/.rustup" ]; then
     ln -sf /usr/local/rustup "${HOME}/.rustup"
 fi
 export PATH="${CARGO_HOME}/bin:${PATH}"
+mkdir -p "${HOME}/.codex"
 
 # trust all workspaces (PVC may have been created by different uid)
 git config --global --add safe.directory '*'
@@ -51,12 +52,17 @@ cd "${WORKSPACE}"
 git config user.name "${AGENT_ID}"
 git config user.email "${AGENT_ID}@endless.dev"
 
-# read github token from mounted file if env var not set
-if [ -z "${GITHUB_TOKEN:-}" ] && [ -f /home/claude/.gh-token ]; then
-    export GITHUB_TOKEN=$(cat /home/claude/.gh-token)
+# materialize Codex auth state from secret-backed env if present
+if [ -n "${CODEX_AUTH_JSON:-}" ]; then
+    printf '%s' "${CODEX_AUTH_JSON}" > "${HOME}/.codex/auth.json"
+    chmod 600 "${HOME}/.codex/auth.json"
 fi
 
 # GITHUB_TOKEN env var is auto-detected by gh CLI -- no explicit login needed
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+    echo "[entrypoint] ERROR: GITHUB_TOKEN env var is required"
+    exit 1
+fi
 
 # verify auth works
 echo "[entrypoint] verifying gh auth..."
@@ -66,13 +72,24 @@ AGENT_FAMILY="${AGENT_FAMILY:-claude}"
 echo "[entrypoint] agent family: ${AGENT_FAMILY}"
 
 if [ "$AGENT_FAMILY" = "codex" ]; then
+    if [ -z "${OPENAI_API_KEY:-}" ] && [ ! -s "${HOME}/.codex/auth.json" ]; then
+        echo "[entrypoint] ERROR: Codex auth is required via OPENAI_API_KEY or CODEX_AUTH_JSON"
+        exit 1
+    fi
+
     echo "[entrypoint] verifying codex auth..."
     codex --version 2>&1 || true
+    codex login status 2>&1 || true
 
     echo "[entrypoint] launching codex for ${REPO_NAME}#${ISSUE_NUMBER}..."
     codex exec --dangerously-bypass-approvals-and-sandbox "/issue ${REPO_NAME} ${ISSUE_NUMBER}" 2>&1
     EXIT_CODE=$?
 else
+    if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+        echo "[entrypoint] ERROR: CLAUDE_CODE_OAUTH_TOKEN env var is required for Claude agents"
+        exit 1
+    fi
+
     echo "[entrypoint] verifying claude auth..."
     claude --version 2>&1 || true
 

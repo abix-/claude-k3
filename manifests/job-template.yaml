@@ -46,6 +46,23 @@ spec:
                   name: claude-secrets
                   key: CLAUDE_CODE_OAUTH_TOKEN
                   optional: true
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: claude-secrets
+                  key: GITHUB_TOKEN
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: claude-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: CODEX_AUTH_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: claude-secrets
+                  key: CODEX_AUTH_JSON
+                  optional: true
           volumeMounts:
             - name: cargo-target
               mountPath: /cargo-target
@@ -64,12 +81,6 @@ spec:
               readOnly: true
             - name: claude-md
               mountPath: /home/claude/.claude/CLAUDE.md
-              readOnly: true
-            - name: gh-token
-              mountPath: /home/claude/.gh-token
-              readOnly: true
-            - name: codex-auth
-              mountPath: /home/claude/.codex/auth.json
               readOnly: true
       volumes:
         - name: cargo-target
@@ -96,12 +107,4 @@ spec:
         - name: claude-md
           hostPath:
             path: /mnt/c/Users/Abix/.claude/CLAUDE.md
-            type: File
-        - name: gh-token
-          hostPath:
-            path: /mnt/c/Users/Abix/.gh-token
-            type: File
-        - name: codex-auth
-          hostPath:
-            path: /mnt/c/Users/Abix/.codex/auth.json
             type: File

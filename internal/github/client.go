@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -14,21 +15,13 @@ import (
 )
 
 func newClient(ctx context.Context) *gh.Client {
-	token := os.Getenv("GITHUB_TOKEN")
+	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 	if token == "" {
-		token = os.Getenv("GH_TOKEN")
+		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
 	}
-	// fallback: read from token file (shared between Windows and k8s pods)
 	if token == "" {
-		for _, path := range []string{
-			"/home/claude/.gh-token",                // k8s pod (hostPath mount)
-			os.Getenv("USERPROFILE") + "/.gh-token", // Windows
-			os.Getenv("HOME") + "/.gh-token",        // Linux
-		} {
-			if b, err := os.ReadFile(path); err == nil {
-				token = strings.TrimSpace(string(b))
-				break
-			}
+		if out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output(); err == nil {
+			token = strings.TrimSpace(string(out))
 		}
 	}
 	if token == "" {
