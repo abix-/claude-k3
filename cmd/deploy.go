@@ -108,8 +108,37 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("image build: %w", err)
 	}
 
-	// 5. restart operator
+	// 5. apply k8s manifests
 	kubectl := "sudo k3s kubectl"
+	mntManifests := mntRoot + "/manifests"
+
+	// order matters: namespace -> CRD -> secret -> PVCs -> configmap -> operator
+	manifests := []string{
+		"namespace.yaml",
+		"crd.yaml",
+		"secret.yaml",
+		"pvc-cargo-target.yaml",
+		"pvc-cargo-home.yaml",
+		"pvc-workspaces.yaml",
+		"operator-deployment.yaml",
+	}
+	for _, file := range manifests {
+		applyCmd := fmt.Sprintf("%s apply -f %s/%s", kubectl, mntManifests, file)
+		if err := runCmd("applying "+file,
+			"wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c", applyCmd); err != nil {
+			return fmt.Errorf("apply %s: %w", file, err)
+		}
+	}
+
+	// configmap from job template (special: create --dry-run | apply)
+	cmCmd := fmt.Sprintf("%s create configmap dispatcher-scripts -n claude-agents --from-file=job-template.yaml=%s/job-template.yaml --dry-run=client -o yaml | %s apply -f -",
+		kubectl, mntManifests, kubectl)
+	if err := runCmd("applying job template configmap",
+		"wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c", cmCmd); err != nil {
+		return fmt.Errorf("apply configmap: %w", err)
+	}
+
+	// 6. restart operator
 	restartCmd := fmt.Sprintf("%s rollout restart deployment k3sc-operator -n claude-agents", kubectl)
 	if err := runCmd("restarting operator",
 		"wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c", restartCmd); err != nil {
