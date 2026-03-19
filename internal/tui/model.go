@@ -16,6 +16,7 @@ type LiveLog struct {
 	Issue int
 	Agent string
 	Lines []string
+	Tail  string // cached last meaningful line (O(1) for dashboard)
 }
 
 type Data struct {

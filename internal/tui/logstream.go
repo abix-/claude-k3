@@ -13,13 +13,16 @@ import (
 
 const maxLogLines = 8
 
+const maxScanBuffer = 1 << 20 // 1 MB -- handles long tool/log lines
+
 type podStream struct {
-	agent  string
-	issue  int
-	mu     sync.Mutex
-	lines  []string
-	cancel context.CancelFunc
-	done   chan struct{} // closed when goroutine exits
+	agent    string
+	issue    int
+	mu       sync.Mutex
+	lines    []string
+	lastTail string // cached last meaningful line for dashboard O(1)
+	cancel   context.CancelFunc
+	done     chan struct{} // closed when goroutine exits
 }
 
 func (ps *podStream) appendLine(line string) {
@@ -29,14 +32,27 @@ func (ps *podStream) appendLine(line string) {
 	if len(ps.lines) > maxLogLines {
 		ps.lines = ps.lines[len(ps.lines)-maxLogLines:]
 	}
+	// cache last meaningful line (skip entrypoint/tool/result noise)
+	if !isMeta(line) {
+		ps.lastTail = line
+	}
 }
 
-func (ps *podStream) snapshot() []string {
+func isMeta(line string) bool {
+	for _, prefix := range []string{"[entrypoint]", "[tool]", "[result]"} {
+		if len(line) >= len(prefix) && line[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+func (ps *podStream) snapshot() ([]string, string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	out := make([]string, len(ps.lines))
 	copy(out, ps.lines)
-	return out
+	return out, ps.lastTail
 }
 
 // wait blocks until the goroutine exits.
@@ -137,6 +153,7 @@ func (ls *LogStreamer) follow(ctx context.Context, podName string, ps *podStream
 		}
 
 		scanner := bufio.NewScanner(stream)
+		scanner.Buffer(make([]byte, 0, maxScanBuffer), maxScanBuffer)
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
@@ -161,14 +178,13 @@ func (ls *LogStreamer) Snapshot() []LiveLog {
 
 	var result []LiveLog
 	for _, ps := range ls.streams {
-		lines := ps.snapshot()
-		if len(lines) > 0 {
-			result = append(result, LiveLog{
-				Issue: ps.issue,
-				Agent: ps.agent,
-				Lines: lines,
-			})
-		}
+		lines, tail := ps.snapshot()
+		result = append(result, LiveLog{
+			Issue: ps.issue,
+			Agent: ps.agent,
+			Lines: lines,
+			Tail:  tail,
+		})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Agent < result[j].Agent
