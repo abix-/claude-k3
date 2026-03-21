@@ -181,13 +181,14 @@ type Issue struct {
 }
 
 type PullRequest struct {
-	Number int
-	Title  string
-	State  string // OPEN, MERGED, CLOSED
-	Branch string
-	Issue  int // linked issue number (from branch name issue-N)
-	Owner  string
-	Repo   Repo
+	Number  int
+	Title   string
+	State   string // OPEN, MERGED, CLOSED
+	Branch  string
+	Issue   int // linked issue number (from branch name issue-N)
+	Owner   string
+	Waiting bool
+	Repo    Repo
 }
 
 func ReviewLeaseName(repo Repo, prNumber int) string {

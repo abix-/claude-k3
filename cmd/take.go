@@ -74,7 +74,7 @@ func runTake(cmd *cobra.Command, args []string) error {
 		if !matchesRepoFilter(pr.Repo, takeRepo) {
 			continue
 		}
-		if pr.Owner != "" || pr.Issue <= 0 {
+		if pr.Owner != "" || pr.Issue <= 0 || pr.Waiting {
 			continue
 		}
 		if _, leased := leaseMap[repoPRKey(pr.Repo, pr.Number)]; leased {

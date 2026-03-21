@@ -87,14 +87,22 @@ func GetOpenPRs(ctx context.Context) ([]types.PullRequest, error) {
 			branch := pr.GetHead().GetRef()
 			issueNum := ParseBranchIssueNumber(branch)
 			_, owner := parseIssueLabels(pr.Labels)
+			waiting := false
+			for _, l := range pr.Labels {
+				if l.GetName() == "waiting" {
+					waiting = true
+					break
+				}
+			}
 			result = append(result, types.PullRequest{
-				Number: pr.GetNumber(),
-				Title:  pr.GetTitle(),
-				State:  pr.GetState(),
-				Branch: branch,
-				Issue:  issueNum,
-				Owner:  owner,
-				Repo:   repo,
+				Number:  pr.GetNumber(),
+				Title:   pr.GetTitle(),
+				State:   pr.GetState(),
+				Branch:  branch,
+				Issue:   issueNum,
+				Owner:   owner,
+				Waiting: waiting,
+				Repo:    repo,
 			})
 		}
 	}
