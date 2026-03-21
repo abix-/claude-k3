@@ -14,7 +14,7 @@ func FmtTime(t *time.Time) string {
 	if t == nil {
 		return ""
 	}
-	return t.In(loc).Format("3:04 PM MST")
+	return t.In(loc).Format("Jan 2 3:04 PM")
 }
 
 func FmtDuration(start, end *time.Time) string {
