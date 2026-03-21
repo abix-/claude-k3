@@ -103,7 +103,8 @@ else
     claude --version 2>&1 || true
 
     echo "[entrypoint] launching claude for ${REPO_NAME}#${ISSUE_NUMBER}..."
-    claude --dangerously-skip-permissions -p "/issue ${REPO_NAME} ${ISSUE_NUMBER}" \
+    claude --dangerously-skip-permissions -p "/obey
+/issue ${REPO_NAME} ${ISSUE_NUMBER}" \
         --output-format stream-json --verbose --include-partial-messages 2>&1 | \
         while IFS= read -r line || [ -n "$line" ]; do
             if parsed=$(printf '%s\n' "$line" | jq -rj 'if .type == "stream_event" and .event.delta.type? == "text_delta" then .event.delta.text

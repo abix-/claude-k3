@@ -106,14 +106,14 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	lockPath := filepath.Join(dir, lockFile)
 
 	// codex is an npm .cmd shim on Windows; wezterm needs cmd.exe to run it
-	bin := agent
-	var launchArgs []string
-	if agent == "codex" {
-		launchArgs = []string{"wezterm", "start", "--cwd", dir, "--", "cmd", "/c", "codex"}
+	var c *exec.Cmd
+	if agent == "claude" {
+		c = exec.Command("wezterm", "start", "--cwd", dir, "--", "claude", "/obey")
+	} else if agent == "codex" {
+		c = exec.Command("wezterm", "start", "--cwd", dir, "--", "cmd", "/c", "codex")
 	} else {
-		launchArgs = []string{"wezterm", "start", "--cwd", dir, "--", bin}
+		c = exec.Command("wezterm", "start", "--cwd", dir, "--", agent)
 	}
-	c := exec.Command(launchArgs[0], launchArgs[1:]...)
 	if err := c.Start(); err != nil {
 		return fmt.Errorf("wezterm: %w", err)
 	}
